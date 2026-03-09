@@ -4,13 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-wgpu = "24"
+ash = "0.38"
+ash-window = "0.13"
+gpu-allocator = { version = "0.28", features = ["vulkan"] }
+raw-window-handle = "0.6"
 winit = "0.30"
 glam = "0.29"
 clap = { version = "4", features = ["derive"] }
 thiserror = "2"
 parking_lot = "0.12"
-pollster = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
 log = "0.4"
 env_logger = "0.11"
@@ -25,11 +27,14 @@ azalea-core = "0.15"
 azalea-registry = "0.15"
 uuid = { version = "1", features = ["v4"] }
 crossbeam-channel = "0.5"
+png = "0.17"
 image = "0.25"
 egui = "0.31"
-egui-wgpu = "0.31"
 egui-winit = "0.31"
 azalea-inventory = "0.15"
 rayon = "1.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[build-dependencies]
+naga = { version = "24", features = ["wgsl-in", "spv-out"] }

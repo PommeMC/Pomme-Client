@@ -1,97 +1,341 @@
-use std::sync::Arc;
+use std::ffi::{CStr, CString};
+use std::sync::{Arc, Mutex};
 
+use ash::ext::debug_utils;
+use ash::khr::{surface, swapchain};
+use ash::vk;
+use gpu_allocator::vulkan::{Allocator, AllocatorCreateDesc};
+use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use thiserror::Error;
-use wgpu::{Device, Instance, Queue, Surface, SurfaceConfiguration};
-use winit::dpi::PhysicalSize;
 use winit::window::Window;
+
+const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 #[derive(Error, Debug)]
 pub enum ContextError {
-    #[error("no compatible GPU adapter found")]
-    NoAdapter,
+    #[error("Vulkan error: {0}")]
+    Vulkan(#[from] vk::Result),
 
-    #[error("failed to request device: {0}")]
-    RequestDevice(#[from] wgpu::RequestDeviceError),
+    #[error("no suitable GPU found")]
+    NoSuitableGpu,
 
-    #[error("surface configuration failed: {0}")]
-    CreateSurface(#[from] wgpu::CreateSurfaceError),
+    #[error("allocator error: {0}")]
+    Allocator(#[from] gpu_allocator::AllocationError),
+
+    #[error("surface error: {0}")]
+    HandleError(#[from] raw_window_handle::HandleError),
 }
 
-pub struct GpuContext {
-    pub device: Device,
-    pub queue: Queue,
-    pub surface: Surface<'static>,
-    pub config: SurfaceConfiguration,
+pub struct VulkanContext {
+    pub entry: ash::Entry,
+    pub instance: ash::Instance,
+    pub surface_loader: surface::Instance,
+    pub surface: vk::SurfaceKHR,
+    pub physical_device: vk::PhysicalDevice,
+    pub device: ash::Device,
+    pub graphics_queue: vk::Queue,
+    pub present_queue: vk::Queue,
+    pub graphics_family: u32,
+    pub present_family: u32,
+    pub swapchain_loader: swapchain::Device,
+    pub allocator: Arc<Mutex<Allocator>>,
+    pub command_pool: vk::CommandPool,
+    pub command_buffers: Vec<vk::CommandBuffer>,
+    pub image_available: Vec<vk::Semaphore>,
+    pub render_finished: Vec<vk::Semaphore>,
+    pub in_flight_fences: Vec<vk::Fence>,
+    pub frame_index: usize,
+    debug_messenger: Option<vk::DebugUtilsMessengerEXT>,
+    debug_utils_loader: Option<debug_utils::Instance>,
 }
 
-impl GpuContext {
-    pub async fn new(window: Arc<Window>) -> Result<Self, ContextError> {
-        let size = window.inner_size();
+impl VulkanContext {
+    pub fn new(window: &Window) -> Result<Self, ContextError> {
+        let entry = unsafe { ash::Entry::load().expect("failed to load Vulkan") };
 
-        let instance = Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            ..Default::default()
-        });
+        let app_info = vk::ApplicationInfo::default()
+            .application_name(c"Ferrite")
+            .application_version(vk::make_api_version(0, 0, 1, 0))
+            .engine_name(c"Ferrite Engine")
+            .engine_version(vk::make_api_version(0, 0, 1, 0))
+            .api_version(vk::make_api_version(0, 1, 3, 0));
 
-        let surface = instance.create_surface(window)?;
+        let display_handle = window.display_handle()?.as_raw();
+        let mut required_extensions =
+            ash_window::enumerate_required_extensions(display_handle)?.to_vec();
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .ok_or(ContextError::NoAdapter)?;
+        let enable_validation = cfg!(debug_assertions);
+        if enable_validation {
+            required_extensions.push(debug_utils::NAME.as_ptr());
+        }
 
-        log::info!("GPU adapter: {}", adapter.get_info().name);
-
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("mc_device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                    memory_hints: wgpu::MemoryHints::default(),
-                },
-                None,
-            )
-            .await?;
-
-        let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(surface_caps.formats[0]);
-
-        let config = SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
-            width: size.width.max(1),
-            height: size.height.max(1),
-            present_mode: wgpu::PresentMode::AutoVsync,
-            alpha_mode: surface_caps.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
+        let layer_names: Vec<CString> = if enable_validation {
+            vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()]
+        } else {
+            vec![]
         };
-        surface.configure(&device, &config);
+        let layer_ptrs: Vec<*const i8> = layer_names.iter().map(|l| l.as_ptr()).collect();
+
+        let instance_info = vk::InstanceCreateInfo::default()
+            .application_info(&app_info)
+            .enabled_extension_names(&required_extensions)
+            .enabled_layer_names(&layer_ptrs);
+
+        let instance = unsafe { entry.create_instance(&instance_info, None)? };
+
+        let (debug_utils_loader, debug_messenger) = if enable_validation {
+            let loader = debug_utils::Instance::new(&entry, &instance);
+            let messenger_info = vk::DebugUtilsMessengerCreateInfoEXT::default()
+                .message_severity(
+                    vk::DebugUtilsMessageSeverityFlagsEXT::ERROR
+                        | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING,
+                )
+                .message_type(
+                    vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+                        | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+                        | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
+                )
+                .pfn_user_callback(Some(vulkan_debug_callback));
+
+            let messenger =
+                unsafe { loader.create_debug_utils_messenger(&messenger_info, None)? };
+            (Some(loader), Some(messenger))
+        } else {
+            (None, None)
+        };
+
+        let surface_loader = surface::Instance::new(&entry, &instance);
+        let surface = unsafe {
+            ash_window::create_surface(
+                &entry,
+                &instance,
+                display_handle,
+                window.window_handle()?.as_raw(),
+                None,
+            )?
+        };
+
+        let (physical_device, graphics_family, present_family) =
+            pick_physical_device(&instance, &surface_loader, surface)?;
+
+        let dev_name = unsafe {
+            let props = instance.get_physical_device_properties(physical_device);
+            CStr::from_ptr(props.device_name.as_ptr())
+                .to_string_lossy()
+                .into_owned()
+        };
+        log::info!("GPU: {dev_name}");
+
+        let unique_families: Vec<u32> = if graphics_family == present_family {
+            vec![graphics_family]
+        } else {
+            vec![graphics_family, present_family]
+        };
+
+        let queue_priority = [1.0f32];
+        let queue_infos: Vec<vk::DeviceQueueCreateInfo> = unique_families
+            .iter()
+            .map(|&family| {
+                vk::DeviceQueueCreateInfo::default()
+                    .queue_family_index(family)
+                    .queue_priorities(&queue_priority)
+            })
+            .collect();
+
+        let device_extensions = [swapchain::NAME.as_ptr()];
+
+        let device_info = vk::DeviceCreateInfo::default()
+            .queue_create_infos(&queue_infos)
+            .enabled_extension_names(&device_extensions);
+
+        let device = unsafe { instance.create_device(physical_device, &device_info, None)? };
+
+        let graphics_queue = unsafe { device.get_device_queue(graphics_family, 0) };
+        let present_queue = unsafe { device.get_device_queue(present_family, 0) };
+
+        let swapchain_loader = swapchain::Device::new(&instance, &device);
+
+        let allocator = Allocator::new(&AllocatorCreateDesc {
+            instance: instance.clone(),
+            device: device.clone(),
+            physical_device,
+            debug_settings: Default::default(),
+            buffer_device_address: false,
+            allocation_sizes: Default::default(),
+        })?;
+        let allocator = Arc::new(Mutex::new(allocator));
+
+        let pool_info = vk::CommandPoolCreateInfo::default()
+            .queue_family_index(graphics_family)
+            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
+        let command_pool = unsafe { device.create_command_pool(&pool_info, None)? };
+
+        let alloc_info = vk::CommandBufferAllocateInfo::default()
+            .command_pool(command_pool)
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_buffer_count(MAX_FRAMES_IN_FLIGHT as u32);
+        let command_buffers = unsafe { device.allocate_command_buffers(&alloc_info)? };
+
+        let mut image_available = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+        let mut render_finished = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+        let mut in_flight_fences = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+
+        let sem_info = vk::SemaphoreCreateInfo::default();
+        let fence_info =
+            vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
+
+        for _ in 0..MAX_FRAMES_IN_FLIGHT {
+            unsafe {
+                image_available.push(device.create_semaphore(&sem_info, None)?);
+                render_finished.push(device.create_semaphore(&sem_info, None)?);
+                in_flight_fences.push(device.create_fence(&fence_info, None)?);
+            }
+        }
 
         Ok(Self {
-            device,
-            queue,
+            entry,
+            instance,
+            surface_loader,
             surface,
-            config,
+            physical_device,
+            device,
+            graphics_queue,
+            present_queue,
+            graphics_family,
+            present_family,
+            swapchain_loader,
+            allocator,
+            command_pool,
+            command_buffers,
+            image_available,
+            render_finished,
+            in_flight_fences,
+            frame_index: 0,
+            debug_messenger,
+            debug_utils_loader,
         })
     }
 
-    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
-        if new_size.width == 0 || new_size.height == 0 {
-            return;
-        }
-        self.config.width = new_size.width;
-        self.config.height = new_size.height;
-        self.surface.configure(&self.device, &self.config);
+    pub fn advance_frame(&mut self) {
+        self.frame_index = (self.frame_index + 1) % MAX_FRAMES_IN_FLIGHT;
     }
+}
+
+impl Drop for VulkanContext {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = self.device.device_wait_idle();
+
+            for &fence in &self.in_flight_fences {
+                self.device.destroy_fence(fence, None);
+            }
+            for &sem in &self.render_finished {
+                self.device.destroy_semaphore(sem, None);
+            }
+            for &sem in &self.image_available {
+                self.device.destroy_semaphore(sem, None);
+            }
+
+            self.device.destroy_command_pool(self.command_pool, None);
+
+            // Allocator must be dropped before the device
+            drop(self.allocator.lock().unwrap());
+
+            self.device.destroy_device(None);
+
+            self.surface_loader.destroy_surface(self.surface, None);
+
+            if let (Some(loader), Some(messenger)) =
+                (&self.debug_utils_loader, self.debug_messenger)
+            {
+                loader.destroy_debug_utils_messenger(messenger, None);
+            }
+
+            self.instance.destroy_instance(None);
+        }
+    }
+}
+
+fn pick_physical_device(
+    instance: &ash::Instance,
+    surface_loader: &surface::Instance,
+    surface: vk::SurfaceKHR,
+) -> Result<(vk::PhysicalDevice, u32, u32), ContextError> {
+    let devices = unsafe { instance.enumerate_physical_devices()? };
+
+    // Prefer discrete GPUs
+    let mut candidates: Vec<_> = devices
+        .into_iter()
+        .filter_map(|pd| {
+            let (gf, pf) = find_queue_families(instance, surface_loader, surface, pd)?;
+            let props = unsafe { instance.get_physical_device_properties(pd) };
+            let score = match props.device_type {
+                vk::PhysicalDeviceType::DISCRETE_GPU => 100,
+                vk::PhysicalDeviceType::INTEGRATED_GPU => 50,
+                _ => 10,
+            };
+            Some((pd, gf, pf, score))
+        })
+        .collect();
+
+    candidates.sort_by(|a, b| b.3.cmp(&a.3));
+
+    candidates
+        .first()
+        .map(|&(pd, gf, pf, _)| (pd, gf, pf))
+        .ok_or(ContextError::NoSuitableGpu)
+}
+
+fn find_queue_families(
+    instance: &ash::Instance,
+    surface_loader: &surface::Instance,
+    surface: vk::SurfaceKHR,
+    physical_device: vk::PhysicalDevice,
+) -> Option<(u32, u32)> {
+    let families =
+        unsafe { instance.get_physical_device_queue_family_properties(physical_device) };
+
+    let mut graphics = None;
+    let mut present = None;
+
+    for (i, family) in families.iter().enumerate() {
+        let i = i as u32;
+
+        if family.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
+            graphics = Some(i);
+        }
+
+        let present_support = unsafe {
+            surface_loader
+                .get_physical_device_surface_support(physical_device, i, surface)
+                .unwrap_or(false)
+        };
+        if present_support {
+            present = Some(i);
+        }
+
+        if graphics.is_some() && present.is_some() {
+            break;
+        }
+    }
+
+    match (graphics, present) {
+        (Some(g), Some(p)) => Some((g, p)),
+        _ => None,
+    }
+}
+
+unsafe extern "system" fn vulkan_debug_callback(
+    severity: vk::DebugUtilsMessageSeverityFlagsEXT,
+    _ty: vk::DebugUtilsMessageTypeFlagsEXT,
+    data: *const vk::DebugUtilsMessengerCallbackDataEXT,
+    _user_data: *mut std::ffi::c_void,
+) -> vk::Bool32 {
+    let msg = unsafe { CStr::from_ptr((*data).p_message) }.to_string_lossy();
+    match severity {
+        vk::DebugUtilsMessageSeverityFlagsEXT::ERROR => log::error!("[Vulkan] {msg}"),
+        vk::DebugUtilsMessageSeverityFlagsEXT::WARNING => log::warn!("[Vulkan] {msg}"),
+        _ => log::debug!("[Vulkan] {msg}"),
+    }
+    vk::FALSE
 }

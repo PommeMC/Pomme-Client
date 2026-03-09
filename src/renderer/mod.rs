@@ -1,22 +1,22 @@
 pub mod camera;
 pub mod chunk;
 mod context;
-mod pipelines;
+pub(crate) mod shader;
+mod swapchain;
 
 use std::path::Path;
 use std::sync::Arc;
 
+use ash::vk;
 use azalea_core::position::ChunkPos;
 use thiserror::Error;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
 
-use camera::{Camera, CameraUniform};
-use chunk::atlas::TextureAtlas;
+use camera::Camera;
 use chunk::mesher::{ChunkMeshData, MeshDispatcher};
-use context::GpuContext;
-use pipelines::chunk::ChunkPipeline;
-use pipelines::panorama::PanoramaPipeline;
+use context::VulkanContext;
+use swapchain::SwapchainState;
 
 use crate::assets::AssetIndex;
 use crate::window::input::InputState;
@@ -27,38 +27,46 @@ pub enum RendererError {
     #[error("failed to initialize GPU context: {0}")]
     Context(#[from] context::ContextError),
 
-    #[error("surface error: {0}")]
-    Surface(#[from] wgpu::SurfaceError),
-
-    #[error("atlas error: {0}")]
-    Atlas(#[from] chunk::atlas::AtlasError),
+    #[error("vulkan error: {0}")]
+    Vulkan(#[from] vk::Result),
 }
 
 pub struct Renderer {
-    ctx: GpuContext,
+    ctx: VulkanContext,
+    swapchain: SwapchainState,
     camera: Camera,
-    chunk_pipeline: ChunkPipeline,
-    depth_view: wgpu::TextureView,
-    atlas: TextureAtlas,
     registry: BlockRegistry,
-    egui_renderer: egui_wgpu::Renderer,
     egui_state: egui_winit::State,
     egui_ctx: egui::Context,
-    panorama_pipeline: Option<PanoramaPipeline>,
+    swapchain_dirty: bool,
+    width: u32,
+    height: u32,
 }
 
 impl Renderer {
-    pub fn new(window: Arc<Window>, assets_dir: &Path, asset_index: &Option<AssetIndex>) -> Result<Self, RendererError> {
-        let ctx = pollster::block_on(GpuContext::new(Arc::clone(&window)))?;
-        let aspect = ctx.config.width as f32 / ctx.config.height as f32;
-        let camera = Camera::new(aspect);
+    pub fn new(
+        window: Arc<Window>,
+        _assets_dir: &Path,
+        _asset_index: &Option<AssetIndex>,
+    ) -> Result<Self, RendererError> {
+        let size = window.inner_size();
+        let ctx = VulkanContext::new(&window)?;
 
+        let swapchain_state = SwapchainState::new(
+            &ctx.device,
+            &ctx.surface_loader,
+            &ctx.swapchain_loader,
+            ctx.physical_device,
+            ctx.surface,
+            size.width.max(1),
+            size.height.max(1),
+            ctx.graphics_family,
+            ctx.present_family,
+            &ctx.allocator,
+        )?;
+
+        let camera = Camera::new(swapchain_state.aspect_ratio());
         let registry = BlockRegistry::new();
-        let texture_names: std::collections::HashSet<&str> = registry.texture_names().collect();
-        let atlas = TextureAtlas::build(&ctx.device, &ctx.queue, assets_dir, &texture_names)?;
-
-        let chunk_pipeline = ChunkPipeline::new(&ctx.device, ctx.config.format, &atlas);
-        let depth_view = create_depth_view(&ctx.device, ctx.config.width, ctx.config.height);
 
         let egui_ctx = egui::Context::default();
         let egui_state = egui_winit::State::new(
@@ -69,57 +77,51 @@ impl Renderer {
             None,
             None,
         );
-        let egui_renderer =
-            egui_wgpu::Renderer::new(&ctx.device, ctx.config.format, None, 1, false);
 
-        let panorama_pipeline =
-            PanoramaPipeline::new(&ctx.device, &ctx.queue, ctx.config.format, asset_index);
-
-        let mut renderer = Self {
+        Ok(Self {
             ctx,
+            swapchain: swapchain_state,
             camera,
-            chunk_pipeline,
-            depth_view,
-            atlas,
             registry,
-            egui_renderer,
             egui_state,
             egui_ctx,
-            panorama_pipeline,
-        };
-        renderer.clear_screen();
-        Ok(renderer)
-    }
-
-    fn clear_screen(&mut self) {
-        let Ok(output) = self.ctx.surface.get_current_texture() else { return };
-        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("clear_pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.047, g: 0.047, b: 0.078, a: 1.0 }),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-        self.ctx.queue.submit(std::iter::once(encoder.finish()));
-        output.present();
+            swapchain_dirty: false,
+            width: size.width.max(1),
+            height: size.height.max(1),
+        })
     }
 
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
-        self.ctx.resize(new_size);
-        if new_size.width > 0 && new_size.height > 0 {
-            self.depth_view = create_depth_view(&self.ctx.device, new_size.width, new_size.height);
-            self.camera
-                .set_aspect_ratio(new_size.width as f32 / new_size.height as f32);
+        if new_size.width == 0 || new_size.height == 0 {
+            return;
         }
+        self.width = new_size.width;
+        self.height = new_size.height;
+        self.swapchain_dirty = true;
+        self.camera
+            .set_aspect_ratio(new_size.width as f32 / new_size.height as f32);
+    }
+
+    fn recreate_swapchain(&mut self) -> Result<(), RendererError> {
+        self.swapchain.destroy(
+            &self.ctx.device,
+            &self.ctx.swapchain_loader,
+            &self.ctx.allocator,
+        );
+        self.swapchain = SwapchainState::new(
+            &self.ctx.device,
+            &self.ctx.surface_loader,
+            &self.ctx.swapchain_loader,
+            self.ctx.physical_device,
+            self.ctx.surface,
+            self.width,
+            self.height,
+            self.ctx.graphics_family,
+            self.ctx.present_family,
+            &self.ctx.allocator,
+        )?;
+        self.swapchain_dirty = false;
+        Ok(())
     }
 
     pub fn handle_window_event(
@@ -136,19 +138,12 @@ impl Renderer {
 
     pub fn update_camera(&mut self, input: &mut InputState) {
         self.camera.update_look(input);
-        self.flush_camera();
     }
 
     pub fn sync_camera_to_player(&mut self, eye_pos: glam::Vec3, yaw: f32, pitch: f32) {
         self.camera.position = eye_pos;
         self.camera.yaw = yaw;
         self.camera.pitch = pitch;
-        self.flush_camera();
-    }
-
-    fn flush_camera(&mut self) {
-        let uniform = CameraUniform::from_camera(&self.camera);
-        self.chunk_pipeline.update_camera(&self.ctx.queue, &uniform);
     }
 
     pub fn camera_yaw(&self) -> f32 {
@@ -164,236 +159,170 @@ impl Renderer {
             .set_position(glam::Vec3::new(x as f32, y as f32, z as f32), yaw, pitch);
     }
 
-    pub fn upload_chunk_mesh(&mut self, mesh: &ChunkMeshData) {
-        self.chunk_pipeline.upload_mesh(&self.ctx.device, mesh);
+    pub fn upload_chunk_mesh(&mut self, _mesh: &ChunkMeshData) {
+        // TODO: Phase 8 step 3 — Vulkan chunk mesh upload
     }
 
-    pub fn remove_chunk_mesh(&mut self, pos: &ChunkPos) {
-        self.chunk_pipeline.remove_mesh(pos);
+    pub fn remove_chunk_mesh(&mut self, _pos: &ChunkPos) {
+        // TODO: Phase 8 step 3
     }
 
     pub fn clear_chunk_meshes(&mut self) {
-        self.chunk_pipeline.clear_meshes();
+        // TODO: Phase 8 step 3
     }
 
     pub fn create_mesh_dispatcher(&self) -> MeshDispatcher {
-        MeshDispatcher::new(self.registry.clone(), self.atlas.uv_map())
+        MeshDispatcher::new(self.registry.clone(), chunk::atlas::AtlasUVMap::empty())
     }
 
     pub fn render_world(
         &mut self,
         window: &Window,
         hide_cursor: bool,
-        hud_fn: impl FnMut(&egui::Context),
+        _hud_fn: impl FnMut(&egui::Context),
     ) -> Result<(), RendererError> {
-        let prepared = self.prepare_egui(window, hide_cursor, hud_fn);
-        let output = self.ctx.surface.get_current_texture()?;
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        let mut encoder = self
-            .ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("render_encoder"),
-            });
-
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("main_pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.529,
-                            g: 0.808,
-                            b: 0.922,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            self.chunk_pipeline.draw(&mut render_pass);
-        }
-
-        self.finish_egui(prepared, &view, wgpu::LoadOp::Load, encoder);
-        output.present();
-
-        Ok(())
+        self.render_frame(window, hide_cursor, [0.529, 0.808, 0.922, 1.0])
     }
 
     pub fn render_ui(
         &mut self,
         window: &Window,
-        scroll: f32,
-        ui_fn: impl FnMut(&egui::Context),
+        _scroll: f32,
+        _ui_fn: impl FnMut(&egui::Context),
     ) -> Result<(), RendererError> {
-        let prepared = self.prepare_egui(window, false, ui_fn);
-        let output = self.ctx.surface.get_current_texture()?;
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        let mut encoder = self
-            .ctx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("egui_encoder"),
-            });
-
-        if let Some(panorama) = &self.panorama_pipeline {
-            panorama.update_scroll(&self.ctx.queue, scroll);
-
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("panorama_pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-                panorama.draw(&mut pass);
-            }
-
-            self.finish_egui(prepared, &view, wgpu::LoadOp::Load, encoder);
-        } else {
-            self.finish_egui(
-                prepared,
-                &view,
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                encoder,
-            );
-        }
-
-        output.present();
-        Ok(())
+        self.render_frame(window, false, [0.0, 0.0, 0.0, 1.0])
     }
 
-    fn prepare_egui(
+    fn render_frame(
         &mut self,
-        window: &Window,
-        hide_cursor: bool,
-        ui_fn: impl FnMut(&egui::Context),
-    ) -> PreparedEgui {
-        let raw_input = self.egui_state.take_egui_input(window);
-        let full_output = self.egui_ctx.run(raw_input, ui_fn);
-
-        self.egui_state
-            .handle_platform_output(window, full_output.platform_output);
-
-        if hide_cursor {
-            window.set_cursor_visible(false);
+        _window: &Window,
+        _hide_cursor: bool,
+        clear_color: [f32; 4],
+    ) -> Result<(), RendererError> {
+        if self.swapchain_dirty {
+            self.recreate_swapchain()?;
         }
 
-        let tris = self
-            .egui_ctx
-            .tessellate(full_output.shapes, full_output.pixels_per_point);
+        let frame = self.ctx.frame_index;
+        let fence = self.ctx.in_flight_fences[frame];
+        let image_available = self.ctx.image_available[frame];
+        let render_finished = self.ctx.render_finished[frame];
+        let cmd = self.ctx.command_buffers[frame];
 
-        for (id, delta) in &full_output.textures_delta.set {
-            self.egui_renderer
-                .update_texture(&self.ctx.device, &self.ctx.queue, *id, delta);
+        unsafe {
+            self.ctx
+                .device
+                .wait_for_fences(&[fence], true, u64::MAX)?;
         }
 
-        let screen = egui_wgpu::ScreenDescriptor {
-            size_in_pixels: [self.ctx.config.width, self.ctx.config.height],
-            pixels_per_point: full_output.pixels_per_point,
+        let image_index = match unsafe {
+            self.ctx.swapchain_loader.acquire_next_image(
+                self.swapchain.swapchain,
+                u64::MAX,
+                image_available,
+                vk::Fence::null(),
+            )
+        } {
+            Ok((idx, _)) => idx,
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                self.swapchain_dirty = true;
+                return Ok(());
+            }
+            Err(e) => return Err(e.into()),
         };
 
-        PreparedEgui {
-            tris,
-            screen,
-            free_textures: full_output.textures_delta.free,
-        }
-    }
+        unsafe {
+            self.ctx.device.reset_fences(&[fence])?;
+            self.ctx.device.reset_command_buffer(
+                cmd,
+                vk::CommandBufferResetFlags::empty(),
+            )?;
 
-    fn finish_egui(
-        &mut self,
-        prepared: PreparedEgui,
-        view: &wgpu::TextureView,
-        load_op: wgpu::LoadOp<wgpu::Color>,
-        mut encoder: wgpu::CommandEncoder,
-    ) {
-        let commands = self.egui_renderer.update_buffers(
-            &self.ctx.device,
-            &self.ctx.queue,
-            &mut encoder,
-            &prepared.tris,
-            &prepared.screen,
-        );
+            let begin_info = vk::CommandBufferBeginInfo::default()
+                .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+            self.ctx.device.begin_command_buffer(cmd, &begin_info)?;
 
-        {
-            let mut render_pass = encoder
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("egui_pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: load_op,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
+            let clear_values = [
+                vk::ClearValue {
+                    color: vk::ClearColorValue {
+                        float32: clear_color,
+                    },
+                },
+                vk::ClearValue {
+                    depth_stencil: vk::ClearDepthStencilValue {
+                        depth: 1.0,
+                        stencil: 0,
+                    },
+                },
+            ];
+
+            let render_pass_info = vk::RenderPassBeginInfo::default()
+                .render_pass(self.swapchain.render_pass)
+                .framebuffer(self.swapchain.framebuffers[image_index as usize])
+                .render_area(vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent: self.swapchain.extent,
                 })
-                .forget_lifetime();
+                .clear_values(&clear_values);
 
-            self.egui_renderer
-                .render(&mut render_pass, &prepared.tris, &prepared.screen);
+            self.ctx.device.cmd_begin_render_pass(
+                cmd,
+                &render_pass_info,
+                vk::SubpassContents::INLINE,
+            );
+
+            // TODO: Draw chunks, egui, etc.
+
+            self.ctx.device.cmd_end_render_pass(cmd);
+            self.ctx.device.end_command_buffer(cmd)?;
+
+            let wait_semaphores = [image_available];
+            let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+            let signal_semaphores = [render_finished];
+            let cmd_buffers = [cmd];
+
+            let submit_info = vk::SubmitInfo::default()
+                .wait_semaphores(&wait_semaphores)
+                .wait_dst_stage_mask(&wait_stages)
+                .command_buffers(&cmd_buffers)
+                .signal_semaphores(&signal_semaphores);
+
+            self.ctx
+                .device
+                .queue_submit(self.ctx.graphics_queue, &[submit_info], fence)?;
+
+            let swapchains = [self.swapchain.swapchain];
+            let image_indices = [image_index];
+            let present_info = vk::PresentInfoKHR::default()
+                .wait_semaphores(&signal_semaphores)
+                .swapchains(&swapchains)
+                .image_indices(&image_indices);
+
+            match self
+                .ctx
+                .swapchain_loader
+                .queue_present(self.ctx.present_queue, &present_info)
+            {
+                Ok(false) => {}
+                Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                    self.swapchain_dirty = true;
+                }
+                Err(e) => return Err(e.into()),
+            }
         }
 
-        let mut submit: Vec<wgpu::CommandBuffer> = commands;
-        submit.push(encoder.finish());
-        self.ctx.queue.submit(submit);
-
-        for id in &prepared.free_textures {
-            self.egui_renderer.free_texture(id);
-        }
+        self.ctx.advance_frame();
+        Ok(())
     }
 }
 
-struct PreparedEgui {
-    tris: Vec<egui::ClippedPrimitive>,
-    screen: egui_wgpu::ScreenDescriptor,
-    free_textures: Vec<egui::TextureId>,
-}
-
-fn create_depth_view(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("depth_texture"),
-        size: wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Depth32Float,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
-    texture.create_view(&wgpu::TextureViewDescriptor::default())
+impl Drop for Renderer {
+    fn drop(&mut self) {
+        unsafe { let _ = self.ctx.device.device_wait_idle(); }
+        self.swapchain.destroy(
+            &self.ctx.device,
+            &self.ctx.swapchain_loader,
+            &self.ctx.allocator,
+        );
+    }
 }

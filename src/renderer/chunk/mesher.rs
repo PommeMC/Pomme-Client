@@ -15,22 +15,6 @@ pub struct ChunkVertex {
     pub tint: [f32; 3],
 }
 
-impl ChunkVertex {
-    const LAYOUT: &[wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
-        0 => Float32x3,
-        1 => Float32x2,
-        2 => Float32,
-        3 => Float32x3,
-    ];
-
-    pub fn buffer_layout() -> wgpu::VertexBufferLayout<'static> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: Self::LAYOUT,
-        }
-    }
-}
 
 pub struct ChunkMeshData {
     pub pos: ChunkPos,
