@@ -675,19 +675,6 @@ impl Renderer {
                 .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
             self.ctx.device.begin_command_buffer(cmd, &begin_info)?;
 
-            let draw_count = if matches!(mode, RenderMode::World { .. }) {
-                let frustum = self.camera.frustum_planes();
-                self.cull_pipeline.upload_and_dispatch(
-                    &self.ctx.device,
-                    cmd,
-                    frame,
-                    &frustum,
-                    &self.chunk_buffers,
-                )
-            } else {
-                0
-            };
-
             let clear_values = [
                 vk::ClearValue {
                     color: vk::ClearColorValue {
@@ -751,8 +738,10 @@ impl Renderer {
                         sky,
                     );
 
+                    let frustum = self.camera.frustum_planes();
                     self.chunk_pipeline.bind(&self.ctx.device, cmd, frame);
-                    self.chunk_buffers.draw_all(&self.ctx.device, cmd);
+                    self.chunk_buffers
+                        .draw_culled(&self.ctx.device, cmd, &frustum);
 
                     if let Some((block_pos, stage)) = destroy_info {
                         self.block_overlay_pipeline.draw(

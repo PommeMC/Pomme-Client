@@ -147,7 +147,7 @@ fn mesh_chunk_snapshot(
 
             for by in min_y..max_y {
                 let state = snapshot.get_block_state(bx, by, bz);
-                if state.is_air() {
+                if is_air_like(state) {
                     continue;
                 }
 
@@ -300,6 +300,25 @@ fn emit_cube_faces(
             );
         }
     }
+}
+
+fn is_air_like(state: azalea_block::BlockState) -> bool {
+    if state.is_air() {
+        return true;
+    }
+    let block: Box<dyn azalea_block::BlockTrait> = state.into();
+    matches!(
+        block.id(),
+        "cave_air"
+            | "void_air"
+            | "light"
+            | "barrier"
+            | "structure_void"
+            | "water"
+            | "lava"
+            | "bubble_column"
+            | "moving_piston"
+    )
 }
 
 const MISSING_TINT: [f32; 3] = [1.0, 0.0, 1.0];

@@ -3,12 +3,13 @@ use std::sync::{Arc, Mutex};
 use ash::vk;
 use gpu_allocator::vulkan::{Allocation, Allocator};
 
-use crate::renderer::chunk::buffer::{ChunkAABB, DrawIndexedIndirectCommand, MAX_CHUNKS};
+use crate::renderer::chunk::buffer::MAX_CHUNKS;
 use crate::renderer::shader;
 use crate::renderer::util;
 use crate::renderer::MAX_FRAMES_IN_FLIGHT;
-const INDIRECT_STRIDE: u64 = std::mem::size_of::<DrawIndexedIndirectCommand>() as u64;
-const AABB_STRIDE: u64 = std::mem::size_of::<ChunkAABB>() as u64;
+
+const INDIRECT_STRIDE: u64 = 20;
+const AABB_STRIDE: u64 = 32;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -167,21 +168,6 @@ impl CullPipeline {
             descriptor_pool,
             frames,
         }
-    }
-
-    pub fn upload_and_dispatch(
-        &mut self,
-        _device: &ash::Device,
-        _cmd: vk::CommandBuffer,
-        _frame: usize,
-        _frustum_planes: &[[f32; 4]; 6],
-        _chunk_buffers: &crate::renderer::chunk::buffer::ChunkBufferStore,
-    ) -> u32 {
-        0
-    }
-
-    pub fn indirect_buffer(&self, frame: usize) -> vk::Buffer {
-        self.frames[frame].indirect_buffer
     }
 
     pub fn destroy(&mut self, device: &ash::Device, allocator: &Arc<Mutex<Allocator>>) {

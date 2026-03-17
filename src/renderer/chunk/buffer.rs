@@ -12,16 +12,6 @@ pub const MAX_CHUNKS: usize = 8192;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct DrawIndexedIndirectCommand {
-    pub index_count: u32,
-    pub instance_count: u32,
-    pub first_index: u32,
-    pub vertex_offset: i32,
-    pub first_instance: u32,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ChunkAABB {
     pub min: [f32; 4],
     pub max: [f32; 4],
@@ -63,13 +53,13 @@ impl ChunkBufferStore {
         let vertex_bytes = bytemuck::cast_slice(&mesh.vertices);
         let index_bytes = bytemuck::cast_slice(&mesh.indices);
 
-        let (vertex_buffer, vertex_alloc) = create_device_buffer(
+        let (vertex_buffer, vertex_alloc) = create_buffer(
             device,
             allocator,
             vertex_bytes,
             vk::BufferUsageFlags::VERTEX_BUFFER,
         );
-        let (index_buffer, index_alloc) = create_device_buffer(
+        let (index_buffer, index_alloc) = create_buffer(
             device,
             allocator,
             index_bytes,
@@ -123,8 +113,16 @@ impl ChunkBufferStore {
         self.meshes.len().min(MAX_CHUNKS) as u32
     }
 
-    pub fn draw_all(&self, device: &ash::Device, cmd: vk::CommandBuffer) {
+    pub fn draw_culled(
+        &self,
+        device: &ash::Device,
+        cmd: vk::CommandBuffer,
+        frustum: &[[f32; 4]; 6],
+    ) {
         for mesh in self.meshes.values() {
+            if !aabb_in_frustum(&mesh.aabb, frustum) {
+                continue;
+            }
             unsafe {
                 device.cmd_bind_vertex_buffers(cmd, 0, &[mesh.vertex_buffer], &[0]);
                 device.cmd_bind_index_buffer(cmd, mesh.index_buffer, 0, vk::IndexType::UINT32);
@@ -148,7 +146,7 @@ fn destroy_mesh(device: &ash::Device, allocator: &Arc<Mutex<Allocator>>, mesh: C
     alloc.free(mesh.index_alloc).ok();
 }
 
-fn create_device_buffer(
+fn create_buffer(
     device: &ash::Device,
     allocator: &Arc<Mutex<Allocator>>,
     data: &[u8],
@@ -184,4 +182,28 @@ fn create_device_buffer(
     allocation.mapped_slice_mut().unwrap()[..data.len()].copy_from_slice(data);
 
     (buffer, allocation)
+}
+
+fn aabb_in_frustum(aabb: &ChunkAABB, planes: &[[f32; 4]; 6]) -> bool {
+    for plane in planes {
+        let px = if plane[0] >= 0.0 {
+            aabb.max[0]
+        } else {
+            aabb.min[0]
+        };
+        let py = if plane[1] >= 0.0 {
+            aabb.max[1]
+        } else {
+            aabb.min[1]
+        };
+        let pz = if plane[2] >= 0.0 {
+            aabb.max[2]
+        } else {
+            aabb.min[2]
+        };
+        if plane[0] * px + plane[1] * py + plane[2] * pz + plane[3] < 0.0 {
+            return false;
+        }
+    }
+    true
 }
