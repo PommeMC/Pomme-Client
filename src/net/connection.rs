@@ -47,6 +47,7 @@ pub struct ConnectArgs {
     pub username: String,
     pub uuid: uuid::Uuid,
     pub access_token: Option<String>,
+    pub view_distance: u8,
 }
 
 pub struct ConnectionHandle {
@@ -119,7 +120,7 @@ pub async fn connect_to_server(
     let mut conn = conn.config();
 
     log::info!("Entering configuration phase");
-    let registry_holder = config_sequence(&mut conn).await?;
+    let registry_holder = config_sequence(&mut conn, args.view_distance).await?;
 
     let conn = conn.game();
     log::info!("Entering game state");
@@ -220,6 +221,7 @@ async fn handle_encryption(
 
 async fn config_sequence(
     conn: &mut Connection<ClientboundConfigPacket, ServerboundConfigPacket>,
+    view_distance: u8,
 ) -> Result<azalea_core::registry_holder::RegistryHolder, ConnectionError> {
     use azalea_core::registry_holder::RegistryHolder;
     use azalea_entity::HumanoidArm;
@@ -232,7 +234,7 @@ async fn config_sequence(
         s_client_information::ServerboundClientInformation {
             information: ClientInformation {
                 language: "en_us".into(),
-                view_distance: 8,
+                view_distance,
                 chat_visibility: ChatVisibility::Full,
                 chat_colors: true,
                 model_customization: ModelCustomization {
@@ -336,7 +338,7 @@ async fn game_loop(
                     },
                 )
             } else {
-                // TODO: implement chat signing — requires enforce-secure-profile=false for now
+                // TODO: implement chat signing - requires enforce-secure-profile=false for now
                 ServerboundGamePacket::Chat(
                     azalea_protocol::packets::game::s_chat::ServerboundChat {
                         message: msg,

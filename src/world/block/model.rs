@@ -242,8 +242,10 @@ pub fn bake_all_models(
 ) -> HashMap<String, HashMap<String, BakedModel>> {
     let mut results: HashMap<String, HashMap<String, BakedModel>> = HashMap::new();
     let mut model_cache = HashMap::new();
+    let mut total = 0u32;
 
     for_each_blockstate(assets_dir, asset_index, |block_name, blockstate| {
+        total += 1;
         let has_tint = determine_tint(block_name) != Tint::None;
         let mut variants_map: HashMap<String, BakedModel> = HashMap::new();
 
@@ -288,7 +290,23 @@ pub fn bake_all_models(
         Some(())
     });
 
-    log::info!("Baked models for {} blocks", results.len());
+    let mut missing_names: Vec<String> = Vec::new();
+    for_each_blockstate(assets_dir, asset_index, |block_name, _| {
+        if !results.contains_key(block_name) {
+            missing_names.push(block_name.to_string());
+        }
+        Some(())
+    });
+    missing_names.sort();
+    log::info!(
+        "Baked models for {}/{} blocks ({} missing)",
+        results.len(),
+        total,
+        missing_names.len()
+    );
+    if !missing_names.is_empty() {
+        log::warn!("Missing baked models: {}", missing_names.join(", "));
+    }
     results
 }
 
@@ -480,6 +498,9 @@ fn model_id_to_asset_key(model_id: &str) -> String {
 }
 
 fn texture_to_name(texture_ref: &str) -> Option<&str> {
+    if texture_ref.starts_with('#') {
+        return None;
+    }
     let stripped = texture_ref
         .strip_prefix("minecraft:")
         .unwrap_or(texture_ref);

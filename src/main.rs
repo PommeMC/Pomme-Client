@@ -32,15 +32,11 @@ fn main() {
     log::info!("Data directory: {}", data.root.display());
 
     let rt = Arc::new(tokio::runtime::Runtime::new().expect("failed to create tokio runtime"));
-
-    if downloader::needs_download(&data) {
-        let version = args.version.as_deref().unwrap_or(DEFAULT_VERSION);
-        log::info!("Assets not found, downloading for version {version}...");
-        if let Err(e) = rt.block_on(downloader::download_assets(&data, version)) {
-            log::error!("Asset download failed: {e}");
-            log::info!("Continuing without downloaded assets...");
-        }
-    }
+    let version = args
+        .version
+        .as_deref()
+        .unwrap_or(DEFAULT_VERSION)
+        .to_string();
 
     let connection = if let Some(ref server) = args.server {
         let connect_args = ConnectArgs {
@@ -52,6 +48,7 @@ fn main() {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or_else(uuid::Uuid::nil),
             access_token: args.access_token.clone(),
+            view_distance: 12,
         };
 
         Some(net::connection::spawn_connection(&rt, connect_args))
@@ -59,12 +56,7 @@ fn main() {
         None
     };
 
-    if let Err(e) = window::run(
-        connection,
-        data.assets_dir.clone(),
-        data.instance_dir.clone(),
-        rt,
-    ) {
+    if let Err(e) = window::run(connection, data, version, rt) {
         log::error!("Fatal: {e}");
         std::process::exit(1);
     }

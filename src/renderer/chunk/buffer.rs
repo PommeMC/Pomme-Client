@@ -388,12 +388,7 @@ impl ChunkBufferStore {
         );
     }
 
-    pub fn flush(
-        &mut self,
-        device: &ash::Device,
-        queue: vk::Queue,
-        command_pool: vk::CommandPool,
-    ) {
+    pub fn flush(&mut self, device: &ash::Device, queue: vk::Queue, command_pool: vk::CommandPool) {
         if self.pending.is_empty() {
             return;
         }

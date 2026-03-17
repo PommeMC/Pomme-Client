@@ -8,7 +8,7 @@ pub struct DebugInfo<'a> {
     pub position: glam::Vec3,
     pub yaw: f32,
     pub pitch: f32,
-    pub target_block: Option<(BlockPos, azalea_core::direction::Direction)>,
+    pub target_block: Option<(BlockPos, azalea_core::direction::Direction, String)>,
     pub chunk_count: u32,
     pub gpu_name: &'a str,
     pub vulkan_version: &'a str,
@@ -37,7 +37,11 @@ pub fn max_gui_scale(screen_w: f32, screen_h: f32) -> u32 {
 
 pub fn gui_scale(screen_w: f32, screen_h: f32, setting: u32) -> f32 {
     let max = max_gui_scale(screen_w, screen_h);
-    if setting == 0 { max as f32 } else { setting.min(max) as f32 }
+    if setting == 0 {
+        max as f32
+    } else {
+        setting.min(max) as f32
+    }
 }
 
 pub fn build_hud(
@@ -215,13 +219,11 @@ fn build_debug_overlay(elements: &mut Vec<MenuElement>, info: &DebugInfo<'_>, gs
         format!("Chunks: {} loaded", info.chunk_count),
     ];
 
-    if let Some((target, face)) = &info.target_block {
+    if let Some((target, face, name)) = &info.target_block {
         left_lines.push(String::new());
-        left_lines.push(format!(
-            "Targeted Block: {}, {}, {}",
-            target.x, target.y, target.z
-        ));
-        left_lines.push(format!("Targeted Face: {:?}", face));
+        left_lines.push(format!("Targeted Block: {}, {}, {}", target.x, target.y, target.z));
+        left_lines.push(format!("minecraft:{name}"));
+        left_lines.push(format!("Face: {:?}", face));
     }
 
     push_debug_lines(elements, &left_lines, pad, pad, fs, true);

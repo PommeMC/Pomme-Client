@@ -84,7 +84,7 @@ impl VulkanContext {
             vec![CString::new("VK_LAYER_KHRONOS_validation").unwrap()]
         } else {
             if cfg!(debug_assertions) {
-                log::warn!("Vulkan validation layers not available — install the Vulkan SDK for debug diagnostics");
+                log::warn!("Vulkan validation layers not available - install the Vulkan SDK for debug diagnostics");
             }
             vec![]
         };

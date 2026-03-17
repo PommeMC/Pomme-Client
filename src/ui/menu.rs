@@ -48,6 +48,7 @@ pub struct MainMenuResult {
 pub struct MenuInput {
     pub cursor: (f32, f32),
     pub clicked: bool,
+    pub mouse_held: bool,
     pub typed_chars: Vec<char>,
     pub backspace: bool,
     pub enter: bool,
@@ -160,6 +161,8 @@ pub struct MainMenu {
     auth_account: Option<AuthAccount>,
     cache_file: PathBuf,
     pub gui_scale_setting: u32,
+    pub render_distance: u32,
+    active_slider: Option<&'static str>,
 }
 
 impl MainMenu {
@@ -196,7 +199,31 @@ impl MainMenu {
             auth_account,
             cache_file,
             gui_scale_setting: 0,
+            render_distance: 12,
+            active_slider: None,
         }
+    }
+
+    pub fn open_options(&mut self) {
+        self.screen = Screen::Options;
+    }
+
+    pub fn is_options_screen(&self) -> bool {
+        matches!(
+            self.screen,
+            Screen::Options
+                | Screen::OptionsVideo
+                | Screen::OptionsSkinCustomization
+                | Screen::OptionsMusicSounds
+                | Screen::OptionsControls
+                | Screen::OptionsKeybinds
+                | Screen::OptionsLanguage
+                | Screen::OptionsChatSettings
+                | Screen::OptionsResourcePacks
+                | Screen::OptionsAccessibility
+                | Screen::OptionsTelemetry
+                | Screen::OptionsCredits
+        )
     }
 
     pub fn start_transition_open(&mut self) {
@@ -1779,12 +1806,12 @@ impl MainMenu {
             ("Credits & Attribution...", Screen::OptionsCredits),
         ];
 
-        self.build_options_grid(sw, sh, input, "Options", Screen::Main, &rows, nav)
+        self.build_options_grid(sw, sh, input, "Options", Screen::Main, &rows, nav, &[])
     }
 
     fn build_options_video(&mut self, sw: f32, sh: f32, input: &MenuInput) -> MainMenuResult {
-        let rd = format!("Render Distance: {} chunks", 12);
-        let sd = format!("Simulation Distance: {} chunks", 12);
+        let rd = format!("Render Distance: {} chunks", self.render_distance);
+        let sd = format!("Simulation Distance: {} chunks", self.render_distance);
         let mf = format!("Max Framerate: {} fps", 120);
         let gui_label = if self.gui_scale_setting == 0 {
             "GUI Scale: Auto".to_string()
@@ -1800,7 +1827,18 @@ impl MainMenu {
             ["Clouds: Fancy", "Fullscreen: OFF"],
             ["Particles: All", "Mipmap Levels: 4"],
         ];
-        self.build_options_grid(sw, sh, input, "Video Settings", Screen::Options, &rows, &[])
+        let rd_frac = (self.render_distance as f32 - 2.0) / 30.0;
+        let sliders: &[(&str, f32)] = &[("Render Distance:", rd_frac)];
+        self.build_options_grid(
+            sw,
+            sh,
+            input,
+            "Video Settings",
+            Screen::Options,
+            &rows,
+            &[],
+            sliders,
+        )
     }
 
     fn build_options_controls(&mut self, sw: f32, sh: f32, input: &MenuInput) -> MainMenuResult {
@@ -1811,7 +1849,7 @@ impl MainMenu {
             ["Sneak: Toggle", "Sprint: Hold"],
         ];
         let nav: &[(&str, Screen)] = &[("Key Binds...", Screen::OptionsKeybinds)];
-        self.build_options_grid(sw, sh, input, "Controls", Screen::Options, &rows, nav)
+        self.build_options_grid(sw, sh, input, "Controls", Screen::Options, &rows, nav, &[])
     }
 
     fn build_options_grid(
@@ -1823,6 +1861,7 @@ impl MainMenu {
         back: Screen,
         rows: &[[&str; 2]],
         nav: &[(&str, Screen)],
+        sliders: &[(&'static str, f32)],
     ) -> MainMenuResult {
         if input.escape {
             self.screen = back.clone_screen();
@@ -1865,10 +1904,42 @@ impl MainMenu {
         let lx = cx - half_w;
         let rx = lx + btn_w + gap;
 
+        let mut slider_results: Vec<(&str, f32)> = Vec::new();
+
         for (row, pair) in rows.iter().enumerate() {
             let by = top_y + row as f32 * (btn_h + gap);
             for (col, label) in pair.iter().enumerate() {
                 let bx = if col == 0 { lx } else { rx };
+
+                if let Some((prefix, value)) = sliders.iter().find(|(p, _)| label.starts_with(p)) {
+                    let is_active = self.active_slider == Some(*prefix);
+                    let result = common::push_slider(
+                        &mut elements,
+                        cursor,
+                        input.mouse_held,
+                        bx,
+                        by,
+                        btn_w,
+                        btn_h,
+                        gs,
+                        fs,
+                        label,
+                        *value,
+                        is_active,
+                    );
+                    any_hovered |= result.hovered;
+                    if result.dragging {
+                        self.active_slider = Some(*prefix);
+                    }
+                    if let Some(v) = result.new_value {
+                        slider_results.push((prefix, v));
+                    }
+                    if !input.mouse_held && is_active {
+                        self.active_slider = None;
+                    }
+                    continue;
+                }
+
                 let h = common::push_button(
                     &mut elements,
                     cursor,
@@ -1891,6 +1962,12 @@ impl MainMenu {
                         self.gui_scale_setting = (self.gui_scale_setting + 1) % (max + 1);
                     }
                 }
+            }
+        }
+
+        for (prefix, value) in &slider_results {
+            if *prefix == "Render Distance:" {
+                self.render_distance = (2.0 + value * 30.0).round() as u32;
             }
         }
 

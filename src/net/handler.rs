@@ -60,9 +60,14 @@ pub fn handle_game_packet(
             ));
         }
         ClientboundGamePacket::ChunkBatchFinished(p) => {
+            let desired = (p.batch_size as f32).max(25.0);
+            log::debug!(
+                "ChunkBatchFinished: batch_size={}, responding with desired={desired}",
+                p.batch_size
+            );
             sender.send(ServerboundGamePacket::ChunkBatchReceived(
                 azalea_protocol::packets::game::s_chunk_batch_received::ServerboundChunkBatchReceived {
-                    desired_chunks_per_tick: p.batch_size as f32,
+                    desired_chunks_per_tick: desired,
                 },
             ));
         }
@@ -135,9 +140,7 @@ pub fn handle_game_packet(
                 reason: format!("{}", p.reason),
             });
         }
-        other => {
-            log::debug!("Game packet: {:?}", std::mem::discriminant(other));
-        }
+        _other => {}
     }
 }
 

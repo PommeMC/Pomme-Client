@@ -133,6 +133,7 @@ fn mesh_chunk_snapshot(
 ) -> ChunkMeshData {
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
+    let mut logged_missing: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     let min_y = snapshot.min_y();
     let max_y = min_y + snapshot.height() as i32;
@@ -174,6 +175,22 @@ fn mesh_chunk_snapshot(
                         snapshot,
                         registry,
                         uv_map,
+                        bx,
+                        by,
+                        bz,
+                    );
+                } else {
+                    let block: Box<dyn azalea_block::BlockTrait> = state.into();
+                    let id = block.id().to_string();
+                    if logged_missing.insert(id.clone()) {
+                        log::warn!("Missing model: {id}");
+                    }
+                    emit_missing_cube(
+                        &mut vertices,
+                        &mut indices,
+                        block_pos,
+                        snapshot,
+                        registry,
                         bx,
                         by,
                         bz,
@@ -282,6 +299,43 @@ fn emit_cube_faces(
                 vertices, indices, block_pos, &positions, &uvs, light, region, face_tint,
             );
         }
+    }
+}
+
+const MISSING_TINT: [f32; 3] = [1.0, 0.0, 1.0];
+
+fn emit_missing_cube(
+    vertices: &mut Vec<ChunkVertex>,
+    indices: &mut Vec<u32>,
+    block_pos: [f32; 3],
+    snapshot: &ChunkStoreSnapshot,
+    registry: &BlockRegistry,
+    bx: i32,
+    by: i32,
+    bz: i32,
+) {
+    for dir in &CUBE_FACE_DIRS {
+        let offset = dir.offset();
+        let neighbor = snapshot.get_block_state(bx + offset[0], by + offset[1], bz + offset[2]);
+        if registry.is_opaque_full_cube(neighbor) {
+            continue;
+        }
+
+        let (positions, _, light) = cube_face_geometry(*dir);
+        let base = vertices.len() as u32;
+        for pos in &positions {
+            vertices.push(ChunkVertex {
+                position: [
+                    block_pos[0] + pos[0],
+                    block_pos[1] + pos[1],
+                    block_pos[2] + pos[2],
+                ],
+                tex_coords: [0.0, 0.0],
+                light,
+                tint: MISSING_TINT,
+            });
+        }
+        indices.extend_from_slice(&[base, base + 1, base + 2, base + 2, base + 3, base]);
     }
 }
 

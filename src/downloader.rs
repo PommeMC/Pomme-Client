@@ -1,3 +1,5 @@
+// TODO: Move to launcher - asset downloading will be handled by mc-launcher when it exists.
+
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -71,9 +73,16 @@ struct AssetObject {
     size: u64,
 }
 
-pub async fn download_assets(
+pub struct DownloadProgress {
+    pub downloaded: u32,
+    pub total: u32,
+    pub status: String,
+}
+
+pub async fn download_assets_with_progress(
     data: &crate::data::DataDir,
     version: &str,
+    progress: &dyn Fn(DownloadProgress),
 ) -> Result<(), DownloadError> {
     let client = reqwest::Client::new();
 
@@ -89,8 +98,8 @@ pub async fn download_assets(
         (idx, Some(vj))
     };
 
-    download_asset_objects(data, &client, &asset_index).await?;
-    download_client_jar(data, &client, version, version_json.as_ref()).await?;
+    download_asset_objects(data, &client, &asset_index, progress).await?;
+    download_client_jar(data, &client, version, version_json.as_ref(), progress).await?;
 
     Ok(())
 }
@@ -135,10 +144,11 @@ async fn download_asset_objects(
     data: &crate::data::DataDir,
     client: &reqwest::Client,
     asset_index: &AssetIndexJson,
+    progress: &dyn Fn(DownloadProgress),
 ) -> Result<(), DownloadError> {
-    let total = asset_index.objects.len();
-    let mut downloaded = 0usize;
-    let mut skipped = 0usize;
+    let total = asset_index.objects.len() as u32;
+    let mut downloaded = 0u32;
+    let mut skipped = 0u32;
 
     for (name, obj) in &asset_index.objects {
         let prefix = &obj.hash[..2];
@@ -167,8 +177,13 @@ async fn download_asset_objects(
         std::fs::write(&path, &bytes)?;
         downloaded += 1;
 
-        if downloaded.is_multiple_of(100) {
-            log::info!("Downloaded {downloaded}/{} assets...", total - skipped);
+        if downloaded % 50 == 0 {
+            let need = total - skipped;
+            progress(DownloadProgress {
+                downloaded,
+                total: need,
+                status: format!("Downloading assets ({downloaded}/{need})"),
+            });
         }
     }
 
@@ -184,6 +199,7 @@ async fn download_client_jar(
     client: &reqwest::Client,
     version: &str,
     cached_version_json: Option<&VersionJson>,
+    progress: &dyn Fn(DownloadProgress),
 ) -> Result<(), DownloadError> {
     let jar_assets_dir = data.assets_dir.join("jar");
     let marker = jar_assets_dir.join(".extracted");
@@ -215,10 +231,11 @@ async fn download_client_jar(
 
     let jar_path = data.versions_dir.join(format!("{version}.jar"));
     if !jar_path.exists() || std::fs::metadata(&jar_path).map(|m| m.len()).unwrap_or(0) != dl.size {
-        log::info!(
-            "Downloading client JAR ({:.1} MB)...",
-            dl.size as f64 / 1_048_576.0
-        );
+        progress(DownloadProgress {
+            downloaded: 0,
+            total: 1,
+            status: "Downloading client JAR...".into(),
+        });
         let bytes = download_with_retry(client, &dl.url, 3).await?;
 
         let actual_hash = format!("{}", sha1_smol::Sha1::from(&bytes).digest());
@@ -231,9 +248,13 @@ async fn download_client_jar(
 
         std::fs::create_dir_all(&data.versions_dir)?;
         std::fs::write(&jar_path, &bytes)?;
-        log::info!("Client JAR saved");
     }
 
+    progress(DownloadProgress {
+        downloaded: 0,
+        total: 1,
+        status: "Extracting client JAR...".into(),
+    });
     extract_jar_assets(&jar_path, &jar_assets_dir)?;
 
     std::fs::write(&marker, version)?;

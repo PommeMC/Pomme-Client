@@ -264,6 +264,16 @@ impl InteractionState {
         let progress = destroy_progress(state, on_ground);
 
         if progress >= 1.0 {
+            if self.is_destroying {
+                send_action(
+                    sender,
+                    Action::AbortDestroyBlock,
+                    self.destroy_pos,
+                    hit.face,
+                    0,
+                );
+                self.is_destroying = false;
+            }
             self.seq += 1;
             let seq = self.seq;
             send_action(

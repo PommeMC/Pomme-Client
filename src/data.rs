@@ -45,7 +45,7 @@ impl DataDir {
 }
 
 fn default_data_dir() -> PathBuf {
-    ProjectDirs::from("", "", "pomc")
+    ProjectDirs::from("", "", ".pomc")
         .map(|dirs| dirs.data_dir().to_path_buf())
-        .unwrap_or_else(|| Path::new("pomc_data").to_path_buf())
+        .unwrap_or_else(|| Path::new(".pomc").to_path_buf())
 }

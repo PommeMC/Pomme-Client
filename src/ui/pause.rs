@@ -10,6 +10,7 @@ pub enum PauseAction {
     None,
     Resume,
     Disconnect,
+    Options,
 }
 
 pub fn build_pause_menu(
@@ -118,7 +119,7 @@ pub fn build_pause_menu(
         false,
     );
 
-    common::push_button(
+    if common::push_button(
         elements,
         cursor,
         col1_x,
@@ -128,8 +129,11 @@ pub fn build_pause_menu(
         gs,
         fs,
         "Options...",
-        false,
-    );
+        true,
+    ) && clicked
+    {
+        action = PauseAction::Options;
+    }
     common::push_button(
         elements,
         cursor,

@@ -46,7 +46,7 @@ enum GameState {
 }
 
 const TICK_RATE: f32 = 1.0 / 20.0;
-const VIEW_DISTANCE: u32 = 8;
+const DEFAULT_RENDER_DISTANCE: u32 = 12;
 const POSITION_SEND_INTERVAL: u32 = 20;
 const POSITION_THRESHOLD_SQ: f64 = 4.0e-8;
 
@@ -97,6 +97,9 @@ struct App {
     last_sent_horizontal_collision: bool,
     was_sprinting: bool,
     position_send_counter: u32,
+    version: String,
+    data: Option<crate::data::DataDir>,
+    options_from_game: bool,
 }
 
 struct FpsCounter {
@@ -128,8 +131,8 @@ impl FpsCounter {
 impl App {
     fn new(
         connection: Option<crate::net::connection::ConnectionHandle>,
-        assets_dir: PathBuf,
-        game_dir: PathBuf,
+        data: crate::data::DataDir,
+        version: String,
         tokio_rt: Arc<tokio::runtime::Runtime>,
     ) -> Self {
         let (net_events, chat_sender, packet_sender) = match connection {
@@ -146,6 +149,9 @@ impl App {
             GameState::Menu
         };
 
+        let assets_dir = data.assets_dir.clone();
+        let game_dir = data.instance_dir.clone();
+
         Self {
             window: None,
             renderer: None,
@@ -154,7 +160,7 @@ impl App {
             net_events,
             chat_sender,
             packet_sender,
-            chunk_store: ChunkStore::new(VIEW_DISTANCE),
+            chunk_store: ChunkStore::new(DEFAULT_RENDER_DISTANCE),
             asset_index: crate::assets::AssetIndex::load(&assets_dir),
             assets_dir,
             game_dir: game_dir.clone(),
@@ -162,6 +168,9 @@ impl App {
             state,
             menu: MainMenu::new(&game_dir, Arc::clone(&tokio_rt)),
             tokio_rt,
+            version,
+            data: Some(data),
+            options_from_game: false,
             player: LocalPlayer::new(),
             tick_accumulator: 0.0,
             prev_player_pos: glam::Vec3::ZERO,
@@ -213,6 +222,7 @@ impl App {
             username,
             uuid,
             access_token,
+            view_distance: self.menu.render_distance as u8,
         };
 
         let handle = crate::net::connection::spawn_connection(&self.tokio_rt, connect_args);
@@ -230,7 +240,7 @@ impl App {
         self.state = GameState::Menu;
         self.paused = false;
         self.position_set = false;
-        self.chunk_store = ChunkStore::new(VIEW_DISTANCE);
+        self.chunk_store = ChunkStore::new(self.menu.render_distance);
         if let Some(renderer) = &mut self.renderer {
             renderer.clear_chunk_meshes();
             self.mesh_dispatcher = Some(renderer.create_mesh_dispatcher());
@@ -261,9 +271,11 @@ impl App {
                 }
                 NetworkEvent::DimensionInfo { height, min_y } => {
                     log::info!("Dimension: height={height}, min_y={min_y}");
-                    self.chunk_store = ChunkStore::new_with_dimension(VIEW_DISTANCE, height, min_y);
+                    self.chunk_store =
+                        ChunkStore::new_with_dimension(self.menu.render_distance, height, min_y);
                     if let Some(renderer) = &mut self.renderer {
                         renderer.clear_chunk_meshes();
+                        self.mesh_dispatcher = Some(renderer.create_mesh_dispatcher());
                     }
                 }
                 NetworkEvent::ChunkLoaded {
@@ -275,7 +287,11 @@ impl App {
                         log::error!("Failed to load chunk [{}, {}]: {e}", pos.x, pos.z);
                         continue;
                     }
-                    chunks_to_mesh.push(pos);
+                    if self.chunk_store.get_chunk(&pos).is_some() {
+                        chunks_to_mesh.push(pos);
+                    } else {
+                        log::warn!("Chunk [{}, {}] ignored (out of range)", pos.x, pos.z);
+                    }
                 }
                 NetworkEvent::ChunkUnloaded { pos } => {
                     self.chunk_store.unload_chunk(&pos);
@@ -284,6 +300,7 @@ impl App {
                     }
                 }
                 NetworkEvent::ChunkCacheCenter { x, z } => {
+                    log::debug!("Chunk cache center: [{x}, {z}]");
                     self.chunk_store
                         .set_center(azalea_core::position::ChunkPos::new(x, z));
                 }
@@ -295,6 +312,11 @@ impl App {
                     pitch,
                     ..
                 } => {
+                    self.chunk_store
+                        .set_center(azalea_core::position::ChunkPos::new(
+                            (x as i32).div_euclid(16),
+                            (z as i32).div_euclid(16),
+                        ));
                     if !self.position_set {
                         self.player.position = glam::Vec3::new(x as f32, y as f32, z as f32);
                         self.player.yaw = yaw.to_radians();
@@ -567,6 +589,9 @@ impl ApplicationHandler for App {
             &self.assets_dir,
             &self.asset_index,
             &self.game_dir,
+            self.data.as_ref(),
+            &self.version,
+            &self.tokio_rt,
         ) {
             Ok(r) => r,
             Err(e) => {
@@ -703,6 +728,7 @@ impl ApplicationHandler for App {
                                 let menu_input = MenuInput {
                                     cursor: self.input.cursor_pos(),
                                     clicked: self.input.left_just_pressed(),
+                                    mouse_held: self.input.left_held(),
                                     typed_chars: self.input.drain_typed_chars(),
                                     backspace: self.input.backspace_pressed(),
                                     enter: self.input.enter_pressed(),
@@ -736,6 +762,14 @@ impl ApplicationHandler for App {
                                 }
 
                                 self.input.clear_click_events();
+
+                                if self.options_from_game && !self.menu.is_options_screen() {
+                                    self.state = GameState::InGame;
+                                    self.paused = true;
+                                    self.options_from_game = false;
+                                    self.apply_cursor_grab();
+                                    break 'redraw;
+                                }
 
                                 match action {
                                     MenuAction::Connect { server, username } => {
@@ -909,7 +943,13 @@ impl ApplicationHandler for App {
                                         position: self.player.position,
                                         yaw: self.player.yaw,
                                         pitch: self.player.pitch,
-                                        target_block: self.interaction.target.map(|t| (t.block_pos, t.face)),
+                                        target_block: self.interaction.target.map(|t| {
+                                            let state = self.chunk_store.get_block_state(
+                                                t.block_pos.x, t.block_pos.y, t.block_pos.z,
+                                            );
+                                            let block: Box<dyn azalea_block::BlockTrait> = state.into();
+                                            (t.block_pos, t.face, block.id().to_string())
+                                        }),
                                         chunk_count: renderer.loaded_chunk_count(),
                                         gpu_name: renderer.gpu_name(),
                                         vulkan_version: renderer.vulkan_version(),
@@ -995,6 +1035,12 @@ impl ApplicationHandler for App {
                                     self.paused = false;
                                     self.apply_cursor_grab();
                                 }
+                                PauseAction::Options => {
+                                    self.menu.open_options();
+                                    self.state = GameState::Menu;
+                                    self.options_from_game = true;
+                                    self.apply_cursor_grab();
+                                }
                                 PauseAction::Disconnect => {
                                     self.disconnect_to_menu(None);
                                 }
@@ -1032,12 +1078,12 @@ impl ApplicationHandler for App {
 
 pub fn run(
     connection: Option<crate::net::connection::ConnectionHandle>,
-    assets_dir: PathBuf,
-    game_dir: PathBuf,
+    data: crate::data::DataDir,
+    version: String,
     tokio_rt: Arc<tokio::runtime::Runtime>,
 ) -> Result<(), WindowError> {
     let event_loop = EventLoop::new()?;
-    let mut app = App::new(connection, assets_dir, game_dir, tokio_rt);
+    let mut app = App::new(connection, data, version, tokio_rt);
     event_loop.run_app(&mut app)?;
     Ok(())
 }

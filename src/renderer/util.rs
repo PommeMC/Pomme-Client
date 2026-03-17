@@ -137,7 +137,14 @@ pub fn create_host_buffer(
     usage: vk::BufferUsageFlags,
     name: &str,
 ) -> (vk::Buffer, Allocation) {
-    create_buffer(device, allocator, size, usage, MemoryLocation::CpuToGpu, name)
+    create_buffer(
+        device,
+        allocator,
+        size,
+        usage,
+        MemoryLocation::CpuToGpu,
+        name,
+    )
 }
 
 pub fn create_gpu_buffer(
@@ -147,7 +154,14 @@ pub fn create_gpu_buffer(
     usage: vk::BufferUsageFlags,
     name: &str,
 ) -> (vk::Buffer, Allocation) {
-    create_buffer(device, allocator, size, usage, MemoryLocation::GpuOnly, name)
+    create_buffer(
+        device,
+        allocator,
+        size,
+        usage,
+        MemoryLocation::GpuOnly,
+        name,
+    )
 }
 
 fn create_buffer(

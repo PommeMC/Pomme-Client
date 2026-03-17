@@ -30,7 +30,7 @@ impl ChunkStore {
     pub fn new_with_dimension(view_distance: u32, height: u32, min_y: i32) -> Self {
         Self {
             chunk_storage: ChunkStorage::new(height, min_y),
-            partial_storage: PartialChunkStorage::new(view_distance),
+            partial_storage: PartialChunkStorage::new(view_distance.max(64)),
         }
     }
 
