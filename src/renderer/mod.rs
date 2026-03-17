@@ -471,6 +471,18 @@ impl Renderer {
         self.camera.pitch
     }
 
+    pub fn gpu_name(&self) -> &str {
+        &self.ctx.gpu_name
+    }
+
+    pub fn vulkan_version(&self) -> &str {
+        &self.ctx.vulkan_version
+    }
+
+    pub fn loaded_chunk_count(&self) -> u32 {
+        self.chunk_buffers.chunk_count()
+    }
+
     pub fn set_camera_position(&mut self, x: f64, y: f64, z: f64, yaw: f32, pitch: f32) {
         self.camera
             .set_position(glam::Vec3::new(x as f32, y as f32, z as f32), yaw, pitch);
@@ -486,8 +498,23 @@ impl Renderer {
     }
 
     pub fn upload_chunk_mesh(&mut self, mesh: &ChunkMeshData) {
-        self.chunk_buffers.upload(mesh);
+        self.chunk_buffers.upload(
+            mesh,
+            &self.ctx.device,
+            &self.ctx.allocator,
+            self.ctx.graphics_queue,
+            self.ctx.command_pool,
+        );
     }
+
+    pub fn flush_chunk_uploads(&mut self) {
+        self.chunk_buffers.flush(
+            &self.ctx.device,
+            self.ctx.graphics_queue,
+            self.ctx.command_pool,
+        );
+    }
+
 
     pub fn remove_chunk_mesh(&mut self, pos: &ChunkPos) {
         self.chunk_buffers.remove(pos);

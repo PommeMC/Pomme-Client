@@ -46,6 +46,8 @@ pub struct VulkanContext {
     pub render_finished: Vec<vk::Semaphore>,
     pub in_flight_fences: Vec<vk::Fence>,
     pub frame_index: usize,
+    pub gpu_name: String,
+    pub vulkan_version: String,
     debug_messenger: Option<vk::DebugUtilsMessengerEXT>,
     debug_utils_loader: Option<debug_utils::Instance>,
 }
@@ -129,13 +131,21 @@ impl VulkanContext {
         let (physical_device, graphics_family, present_family) =
             pick_physical_device(&instance, &surface_loader, surface)?;
 
-        let dev_name = unsafe {
+        let (dev_name, vulkan_version) = unsafe {
             let props = instance.get_physical_device_properties(physical_device);
-            CStr::from_ptr(props.device_name.as_ptr())
+            let name = CStr::from_ptr(props.device_name.as_ptr())
                 .to_string_lossy()
-                .into_owned()
+                .into_owned();
+            let v = props.api_version;
+            let ver = format!(
+                "Vulkan {}.{}.{}",
+                vk::api_version_major(v),
+                vk::api_version_minor(v),
+                vk::api_version_patch(v)
+            );
+            (name, ver)
         };
-        log::info!("GPU: {dev_name}");
+        log::info!("GPU: {dev_name} ({vulkan_version})");
 
         let unique_families: Vec<u32> = if graphics_family == present_family {
             vec![graphics_family]
@@ -220,6 +230,8 @@ impl VulkanContext {
             image_available,
             render_finished,
             in_flight_fences,
+            gpu_name: dev_name,
+            vulkan_version,
             frame_index: 0,
             debug_messenger,
             debug_utils_loader,

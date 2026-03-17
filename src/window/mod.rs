@@ -836,13 +836,10 @@ impl ApplicationHandler for App {
                             if let (Some(dispatcher), Some(renderer)) =
                                 (&self.mesh_dispatcher, &mut self.renderer)
                             {
-                                let results: Vec<_> = dispatcher.drain_results().collect();
-                                if !results.is_empty() {
-                                    renderer.wait_for_all_frames();
-                                    for mesh in &results {
-                                        renderer.upload_chunk_mesh(mesh);
-                                    }
+                                for mesh in dispatcher.drain_results() {
+                                    renderer.upload_chunk_mesh(&mesh);
                                 }
+                                renderer.flush_chunk_uploads();
                             }
 
                             if !self.paused && !self.inventory_open && !self.chat.is_open() {
@@ -906,8 +903,19 @@ impl ApplicationHandler for App {
                                     && !self.chat.is_open()
                                     && self.input.is_cursor_captured();
 
-                                let fps = if self.show_debug {
-                                    Some(self.fps_counter.display_fps)
+                                let debug = if self.show_debug {
+                                    Some(hud::DebugInfo {
+                                        fps: self.fps_counter.display_fps,
+                                        position: self.player.position,
+                                        yaw: self.player.yaw,
+                                        pitch: self.player.pitch,
+                                        target_block: self.interaction.target.map(|t| (t.block_pos, t.face)),
+                                        chunk_count: renderer.loaded_chunk_count(),
+                                        gpu_name: renderer.gpu_name(),
+                                        vulkan_version: renderer.vulkan_version(),
+                                        screen_w: renderer.screen_width(),
+                                        screen_h: renderer.screen_height(),
+                                    })
                                 } else {
                                     None
                                 };
@@ -918,7 +926,7 @@ impl ApplicationHandler for App {
                                     self.input.selected_slot(),
                                     self.player.health,
                                     self.player.food,
-                                    fps,
+                                    debug.as_ref(),
                                     self.menu.gui_scale_setting,
                                 );
 

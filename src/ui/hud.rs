@@ -1,5 +1,20 @@
+use azalea_core::position::BlockPos;
+
 use super::common::WHITE;
 use crate::renderer::pipelines::menu_overlay::{MenuElement, SpriteId};
+
+pub struct DebugInfo<'a> {
+    pub fps: u32,
+    pub position: glam::Vec3,
+    pub yaw: f32,
+    pub pitch: f32,
+    pub target_block: Option<(BlockPos, azalea_core::direction::Direction)>,
+    pub chunk_count: u32,
+    pub gpu_name: &'a str,
+    pub vulkan_version: &'a str,
+    pub screen_w: u32,
+    pub screen_h: u32,
+}
 
 const CROSSHAIR_SIZE: f32 = 10.0;
 const CROSSHAIR_THICKNESS: f32 = 2.0;
@@ -32,7 +47,7 @@ pub fn build_hud(
     selected_slot: u8,
     health: f32,
     food: u32,
-    fps: Option<u32>,
+    debug: Option<&DebugInfo<'_>>,
     gui_scale_setting: u32,
 ) {
     let gs = gui_scale(screen_w, screen_h, gui_scale_setting);
@@ -41,16 +56,8 @@ pub fn build_hud(
 
     build_crosshair(elements, cx, cy);
 
-    if let Some(fps) = fps {
-        let fs = super::common::FONT_SIZE * gs;
-        elements.push(MenuElement::Text {
-            x: 4.0 * gs,
-            y: 4.0 * gs,
-            text: format!("{fps} fps"),
-            scale: fs,
-            color: WHITE,
-            centered: false,
-        });
+    if let Some(info) = debug {
+        build_debug_overlay(elements, info, gs);
     }
 
     let hotbar_w = HOTBAR_W * gs;
@@ -174,5 +181,97 @@ fn build_status_bar(
                 tint: WHITE,
             });
         }
+    }
+}
+
+fn build_debug_overlay(elements: &mut Vec<MenuElement>, info: &DebugInfo<'_>, gs: f32) {
+    let fs = super::common::FONT_SIZE * gs;
+    let pad = 4.0 * gs;
+
+    let pos = info.position;
+    let bx = pos.x.floor() as i32;
+    let by = pos.y.floor() as i32;
+    let bz = pos.z.floor() as i32;
+    let cx = bx.div_euclid(16);
+    let cz = bz.div_euclid(16);
+    let facing = facing_name(info.yaw);
+    let yaw_deg = info.yaw.to_degrees();
+    let pitch_deg = info.pitch.to_degrees();
+
+    let mut left_lines: Vec<String> = vec![
+        format!("POMC ({}fps)", info.fps),
+        String::new(),
+        format!("XYZ: {:.3} / {:.5} / {:.3}", pos.x, pos.y, pos.z),
+        format!("Block: {} {} {}", bx, by, bz),
+        format!(
+            "Chunk: {} {} in [{}, {}]",
+            bx.rem_euclid(16),
+            bz.rem_euclid(16),
+            cx,
+            cz
+        ),
+        format!("Facing: {} ({:.1} / {:.1})", facing, yaw_deg, pitch_deg),
+        String::new(),
+        format!("Chunks: {} loaded", info.chunk_count),
+    ];
+
+    if let Some((target, face)) = &info.target_block {
+        left_lines.push(String::new());
+        left_lines.push(format!(
+            "Targeted Block: {}, {}, {}",
+            target.x, target.y, target.z
+        ));
+        left_lines.push(format!("Targeted Face: {:?}", face));
+    }
+
+    push_debug_lines(elements, &left_lines, pad, pad, fs, true);
+
+    let right_lines: Vec<String> = vec![
+        info.vulkan_version.to_string(),
+        format!("GPU: {}", info.gpu_name),
+        format!("Display: {}x{}", info.screen_w, info.screen_h),
+    ];
+    let right_x = info.screen_w as f32 - pad;
+    push_debug_lines(elements, &right_lines, right_x, pad, fs, false);
+}
+
+fn push_debug_lines(
+    elements: &mut Vec<MenuElement>,
+    lines: &[String],
+    x: f32,
+    start_y: f32,
+    fs: f32,
+    left_align: bool,
+) {
+    let line_h = fs * 1.25;
+    for (i, line) in lines.iter().enumerate() {
+        if line.is_empty() {
+            continue;
+        }
+        let y = start_y + i as f32 * line_h;
+        let tx = if left_align {
+            x
+        } else {
+            x - line.len() as f32 * fs * 0.6
+        };
+        elements.push(MenuElement::Text {
+            x: tx,
+            y,
+            text: line.clone(),
+            scale: fs,
+            color: WHITE,
+            centered: false,
+        });
+    }
+}
+
+fn facing_name(yaw: f32) -> &'static str {
+    let deg = yaw.to_degrees().rem_euclid(360.0);
+    match deg as u32 {
+        315..=360 | 0..=44 => "South (+Z)",
+        45..=134 => "West (-X)",
+        135..=224 => "North (-Z)",
+        225..=314 => "East (+X)",
+        _ => "South (+Z)",
     }
 }

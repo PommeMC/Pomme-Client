@@ -8,8 +8,9 @@ use gpu_allocator::vulkan::{Allocation, Allocator};
 use super::mesher::ChunkMeshData;
 use crate::renderer::util;
 
-const INITIAL_VERTEX_CAPACITY: u64 = 128 * 1024 * 1024;
-const INITIAL_INDEX_CAPACITY: u64 = 32 * 1024 * 1024;
+const INITIAL_VERTEX_CAPACITY: u64 = 256 * 1024 * 1024;
+const INITIAL_INDEX_CAPACITY: u64 = 64 * 1024 * 1024;
+const STAGING_CAPACITY: u64 = 32 * 1024 * 1024;
 const VERTEX_STRIDE: u64 = std::mem::size_of::<super::mesher::ChunkVertex>() as u64;
 const INDEX_STRIDE: u64 = 4;
 pub const MAX_CHUNKS: usize = 8192;
@@ -45,32 +46,89 @@ struct FreeBlock {
     size: u64,
 }
 
-struct MegaBuffer {
+struct GpuMegaBuffer {
     buffer: vk::Buffer,
     allocation: Allocation,
     capacity: u64,
+    usage: vk::BufferUsageFlags,
+    name: &'static str,
     free_list: Vec<FreeBlock>,
 }
 
-impl MegaBuffer {
+impl GpuMegaBuffer {
     fn new(
         device: &ash::Device,
         allocator: &Arc<Mutex<Allocator>>,
         capacity: u64,
         usage: vk::BufferUsageFlags,
-        name: &str,
+        name: &'static str,
     ) -> Self {
+        let full_usage =
+            usage | vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST;
         let (buffer, allocation) =
-            util::create_host_buffer(device, allocator, capacity, usage, name);
+            util::create_gpu_buffer(device, allocator, capacity, full_usage, name);
         Self {
             buffer,
             allocation,
             capacity,
+            usage,
+            name,
             free_list: vec![FreeBlock {
                 offset: 0,
                 size: capacity,
             }],
         }
+    }
+
+    fn alloc_or_grow(
+        &mut self,
+        size: u64,
+        align: u64,
+        device: &ash::Device,
+        allocator: &Arc<Mutex<Allocator>>,
+        queue: vk::Queue,
+        command_pool: vk::CommandPool,
+    ) -> Option<u64> {
+        if let Some(offset) = self.alloc(size, align) {
+            return Some(offset);
+        }
+
+        let new_capacity = (self.capacity * 2).max(self.capacity + size);
+        log::info!(
+            "Growing {} from {}MB to {}MB",
+            self.name,
+            self.capacity / (1024 * 1024),
+            new_capacity / (1024 * 1024)
+        );
+
+        unsafe {
+            let _ = device.device_wait_idle();
+        }
+
+        let full_usage =
+            self.usage | vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST;
+        let (new_buffer, new_alloc) =
+            util::create_gpu_buffer(device, allocator, new_capacity, full_usage, self.name);
+
+        submit_copies(
+            device,
+            queue,
+            command_pool,
+            &[(self.buffer, 0, new_buffer, 0, self.capacity)],
+        );
+
+        unsafe { device.destroy_buffer(self.buffer, None) };
+        let old_alloc = std::mem::replace(&mut self.allocation, new_alloc);
+        allocator.lock().unwrap().free(old_alloc).ok();
+
+        self.buffer = new_buffer;
+        self.free_list.push(FreeBlock {
+            offset: self.capacity,
+            size: new_capacity - self.capacity,
+        });
+        self.capacity = new_capacity;
+
+        self.alloc(size, align)
     }
 
     fn alloc(&mut self, size: u64, align: u64) -> Option<u64> {
@@ -132,11 +190,6 @@ impl MegaBuffer {
         }
     }
 
-    fn write(&mut self, offset: u64, data: &[u8]) {
-        let slice = self.allocation.mapped_slice_mut().unwrap();
-        slice[offset as usize..offset as usize + data.len()].copy_from_slice(data);
-    }
-
     fn reset(&mut self) {
         self.free_list.clear();
         self.free_list.push(FreeBlock {
@@ -152,34 +205,99 @@ impl MegaBuffer {
     }
 }
 
+struct StagingRing {
+    buffer: vk::Buffer,
+    allocation: Allocation,
+    capacity: u64,
+    offset: u64,
+}
+
+impl StagingRing {
+    fn new(device: &ash::Device, allocator: &Arc<Mutex<Allocator>>) -> Self {
+        let (buffer, allocation) = util::create_host_buffer(
+            device,
+            allocator,
+            STAGING_CAPACITY,
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            "staging_ring",
+        );
+        Self {
+            buffer,
+            allocation,
+            capacity: STAGING_CAPACITY,
+            offset: 0,
+        }
+    }
+
+    fn write(&mut self, data: &[u8]) -> u64 {
+        let offset = self.offset;
+        let slice = self.allocation.mapped_slice_mut().unwrap();
+        slice[offset as usize..offset as usize + data.len()].copy_from_slice(data);
+        self.offset += data.len() as u64;
+        offset
+    }
+
+    fn reset(&mut self) {
+        self.offset = 0;
+    }
+
+    fn remaining(&self) -> u64 {
+        self.capacity - self.offset
+    }
+
+    fn destroy(&mut self, device: &ash::Device, allocator: &Arc<Mutex<Allocator>>) {
+        unsafe { device.destroy_buffer(self.buffer, None) };
+        let alloc = std::mem::replace(&mut self.allocation, unsafe { std::mem::zeroed() });
+        allocator.lock().unwrap().free(alloc).ok();
+    }
+}
+
+struct PendingCopy {
+    src_offset: u64,
+    dst_buffer: vk::Buffer,
+    dst_offset: u64,
+    size: u64,
+}
+
 pub struct ChunkBufferStore {
-    vertex_mega: MegaBuffer,
-    index_mega: MegaBuffer,
+    vertex_mega: GpuMegaBuffer,
+    index_mega: GpuMegaBuffer,
+    staging: StagingRing,
+    pending: Vec<PendingCopy>,
     slots: HashMap<ChunkPos, ChunkSlot>,
 }
 
 impl ChunkBufferStore {
     pub fn new(device: &ash::Device, allocator: &Arc<Mutex<Allocator>>) -> Self {
         Self {
-            vertex_mega: MegaBuffer::new(
+            vertex_mega: GpuMegaBuffer::new(
                 device,
                 allocator,
                 INITIAL_VERTEX_CAPACITY,
                 vk::BufferUsageFlags::VERTEX_BUFFER,
                 "vertex_mega",
             ),
-            index_mega: MegaBuffer::new(
+            index_mega: GpuMegaBuffer::new(
                 device,
                 allocator,
                 INITIAL_INDEX_CAPACITY,
                 vk::BufferUsageFlags::INDEX_BUFFER,
                 "index_mega",
             ),
+            staging: StagingRing::new(device, allocator),
+            pending: Vec::new(),
             slots: HashMap::new(),
         }
     }
 
-    pub fn upload(&mut self, mesh: &ChunkMeshData) {
+    pub fn upload(
+        &mut self,
+        mesh: &ChunkMeshData,
+        device: &ash::Device,
+        allocator: &Arc<Mutex<Allocator>>,
+        queue: vk::Queue,
+        command_pool: vk::CommandPool,
+    ) {
         if mesh.vertices.is_empty() || mesh.indices.is_empty() {
             self.remove(&mesh.pos);
             return;
@@ -189,18 +307,60 @@ impl ChunkBufferStore {
 
         let vertex_bytes = bytemuck::cast_slice(&mesh.vertices);
         let index_bytes = bytemuck::cast_slice(&mesh.indices);
+        let total_staging = vertex_bytes.len() as u64 + index_bytes.len() as u64;
 
-        let vertex_offset = self
-            .vertex_mega
-            .alloc(vertex_bytes.len() as u64, VERTEX_STRIDE)
-            .expect("vertex mega-buffer full");
-        let index_offset = self
-            .index_mega
-            .alloc(index_bytes.len() as u64, INDEX_STRIDE)
-            .expect("index mega-buffer full");
+        if total_staging > self.staging.remaining() {
+            self.flush(device, queue, command_pool);
+        }
 
-        self.vertex_mega.write(vertex_offset, vertex_bytes);
-        self.index_mega.write(index_offset, index_bytes);
+        let Some(vertex_offset) = self.vertex_mega.alloc_or_grow(
+            vertex_bytes.len() as u64,
+            VERTEX_STRIDE,
+            device,
+            allocator,
+            queue,
+            command_pool,
+        ) else {
+            log::warn!(
+                "Vertex buffer allocation failed for chunk [{}, {}]",
+                mesh.pos.x,
+                mesh.pos.z
+            );
+            return;
+        };
+        let Some(index_offset) = self.index_mega.alloc_or_grow(
+            index_bytes.len() as u64,
+            INDEX_STRIDE,
+            device,
+            allocator,
+            queue,
+            command_pool,
+        ) else {
+            self.vertex_mega
+                .free(vertex_offset, vertex_bytes.len() as u64);
+            log::warn!(
+                "Index buffer allocation failed for chunk [{}, {}]",
+                mesh.pos.x,
+                mesh.pos.z
+            );
+            return;
+        };
+
+        let v_staging_offset = self.staging.write(vertex_bytes);
+        let i_staging_offset = self.staging.write(index_bytes);
+
+        self.pending.push(PendingCopy {
+            src_offset: v_staging_offset,
+            dst_buffer: self.vertex_mega.buffer,
+            dst_offset: vertex_offset,
+            size: vertex_bytes.len() as u64,
+        });
+        self.pending.push(PendingCopy {
+            src_offset: i_staging_offset,
+            dst_buffer: self.index_mega.buffer,
+            dst_offset: index_offset,
+            size: index_bytes.len() as u64,
+        });
 
         let mut min_y = f32::MAX;
         let mut max_y = f32::MIN;
@@ -226,6 +386,36 @@ impl ChunkBufferStore {
                 },
             },
         );
+    }
+
+    pub fn flush(
+        &mut self,
+        device: &ash::Device,
+        queue: vk::Queue,
+        command_pool: vk::CommandPool,
+    ) {
+        if self.pending.is_empty() {
+            return;
+        }
+
+        let copies: Vec<_> = self
+            .pending
+            .iter()
+            .map(|c| {
+                (
+                    self.staging.buffer,
+                    c.src_offset,
+                    c.dst_buffer,
+                    c.dst_offset,
+                    c.size,
+                )
+            })
+            .collect();
+
+        submit_copies(device, queue, command_pool, &copies);
+
+        self.pending.clear();
+        self.staging.reset();
     }
 
     pub fn remove(&mut self, pos: &ChunkPos) {
@@ -274,7 +464,63 @@ impl ChunkBufferStore {
 
     pub fn destroy(&mut self, device: &ash::Device, allocator: &Arc<Mutex<Allocator>>) {
         self.slots.clear();
+        self.pending.clear();
         self.vertex_mega.destroy(device, allocator);
         self.index_mega.destroy(device, allocator);
+        self.staging.destroy(device, allocator);
+    }
+}
+
+fn submit_copies(
+    device: &ash::Device,
+    queue: vk::Queue,
+    command_pool: vk::CommandPool,
+    copies: &[(vk::Buffer, u64, vk::Buffer, u64, u64)],
+) {
+    if copies.is_empty() {
+        return;
+    }
+
+    unsafe {
+        let alloc_info = vk::CommandBufferAllocateInfo::default()
+            .command_pool(command_pool)
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_buffer_count(1);
+        let cmd = device
+            .allocate_command_buffers(&alloc_info)
+            .expect("failed to allocate copy command buffer")[0];
+
+        let begin = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        device
+            .begin_command_buffer(cmd, &begin)
+            .expect("failed to begin copy command buffer");
+
+        for &(src, src_offset, dst, dst_offset, size) in copies {
+            device.cmd_copy_buffer(
+                cmd,
+                src,
+                dst,
+                &[vk::BufferCopy {
+                    src_offset,
+                    dst_offset,
+                    size,
+                }],
+            );
+        }
+
+        device
+            .end_command_buffer(cmd)
+            .expect("failed to end copy command buffer");
+
+        let cmd_bufs = [cmd];
+        let submit = vk::SubmitInfo::default().command_buffers(&cmd_bufs);
+        device
+            .queue_submit(queue, &[submit], vk::Fence::null())
+            .expect("failed to submit copies");
+        device
+            .queue_wait_idle(queue)
+            .expect("failed to wait for copies");
+        device.free_command_buffers(command_pool, &[cmd]);
     }
 }

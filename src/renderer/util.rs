@@ -137,6 +137,27 @@ pub fn create_host_buffer(
     usage: vk::BufferUsageFlags,
     name: &str,
 ) -> (vk::Buffer, Allocation) {
+    create_buffer(device, allocator, size, usage, MemoryLocation::CpuToGpu, name)
+}
+
+pub fn create_gpu_buffer(
+    device: &ash::Device,
+    allocator: &Arc<Mutex<Allocator>>,
+    size: u64,
+    usage: vk::BufferUsageFlags,
+    name: &str,
+) -> (vk::Buffer, Allocation) {
+    create_buffer(device, allocator, size, usage, MemoryLocation::GpuOnly, name)
+}
+
+fn create_buffer(
+    device: &ash::Device,
+    allocator: &Arc<Mutex<Allocator>>,
+    size: u64,
+    usage: vk::BufferUsageFlags,
+    location: MemoryLocation,
+    name: &str,
+) -> (vk::Buffer, Allocation) {
     let buffer_info = vk::BufferCreateInfo::default()
         .size(size)
         .usage(usage)
@@ -152,7 +173,7 @@ pub fn create_host_buffer(
         .allocate(&AllocationCreateDesc {
             name,
             requirements: mem_reqs,
-            location: MemoryLocation::CpuToGpu,
+            location,
             linear: true,
             allocation_scheme: AllocationScheme::GpuAllocatorManaged,
         })

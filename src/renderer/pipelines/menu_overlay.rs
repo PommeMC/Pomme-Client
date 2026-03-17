@@ -477,7 +477,7 @@ impl MenuOverlayPipeline {
             .unwrap()[..8]
             .copy_from_slice(bytemuck::cast_slice(&globals));
 
-        let mut vertices: Vec<Vertex> = Vec::new();
+        let mut vertices: Vec<Vertex> = Vec::with_capacity(elements.len() * 24);
         for elem in elements {
             match elem {
                 MenuElement::Rect {

@@ -34,7 +34,7 @@ fn tint_color(tint: Tint) -> [f32; 3] {
     }
 }
 
-const MAX_MESH_UPLOADS_PER_FRAME: usize = 4;
+const MAX_MESH_UPLOADS_PER_FRAME: usize = 256;
 
 pub struct MeshDispatcher {
     result_rx: crossbeam_channel::Receiver<ChunkMeshData>,
