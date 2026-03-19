@@ -74,20 +74,18 @@ pub fn handle_game_packet(
                 },
             ));
         }
-        ClientboundGamePacket::ContainerSetContent(p) => {
-            if p.container_id == 0 {
-                let _ = event_tx.try_send(NetworkEvent::InventoryContent {
-                    items: p.items.clone(),
-                });
-            }
+        ClientboundGamePacket::ContainerSetContent(p) if p.container_id == 0 => {
+            let _ = event_tx.try_send(NetworkEvent::InventoryContent {
+                items: p.items.clone(),
+            });
         }
-        ClientboundGamePacket::ContainerSetSlot(p) => {
-            if p.container_id == 0 || p.container_id == -2 {
-                let _ = event_tx.try_send(NetworkEvent::InventorySlot {
-                    index: p.slot,
-                    item: p.item_stack.clone(),
-                });
-            }
+        ClientboundGamePacket::ContainerSetSlot(p)
+            if p.container_id == 0 || p.container_id == -2 =>
+        {
+            let _ = event_tx.try_send(NetworkEvent::InventorySlot {
+                index: p.slot,
+                item: p.item_stack.clone(),
+            });
         }
         ClientboundGamePacket::SetHealth(p) => {
             let _ = event_tx.try_send(NetworkEvent::PlayerHealth {
@@ -96,10 +94,8 @@ pub fn handle_game_packet(
                 saturation: p.saturation,
             });
         }
-        ClientboundGamePacket::SystemChat(p) => {
-            if !p.overlay {
-                send_chat(event_tx, p.content.to_string());
-            }
+        ClientboundGamePacket::SystemChat(p) if !p.overlay => {
+            send_chat(event_tx, p.content.to_string());
         }
         ClientboundGamePacket::PlayerChat(p) => {
             send_chat(event_tx, p.message().to_string());

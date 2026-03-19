@@ -300,7 +300,7 @@ fn pick_physical_device(
         })
         .collect();
 
-    candidates.sort_by(|a, b| b.3.cmp(&a.3));
+    candidates.sort_by_key(|c| std::cmp::Reverse(c.3));
 
     candidates
         .first()

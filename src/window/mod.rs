@@ -740,14 +740,13 @@ impl ApplicationHandler for App {
                 self.input
                     .on_cursor_moved(position.x as f32, position.y as f32);
             }
-            WindowEvent::MouseInput { state, button, .. } => {
+            WindowEvent::MouseInput { state, button, .. }
                 if matches!(self.state, GameState::Menu | GameState::Connecting)
                     || self.paused
                     || self.inventory_open
-                    || self.input.is_cursor_captured()
-                {
-                    self.input.on_mouse_button(button, state);
-                }
+                    || self.input.is_cursor_captured() =>
+            {
+                self.input.on_mouse_button(button, state);
             }
             WindowEvent::RedrawRequested => {
                 let now = Instant::now();

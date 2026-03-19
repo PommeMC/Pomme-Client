@@ -662,12 +662,10 @@ impl MainMenu {
             if clicked && hovered {
                 any_clicked = true;
                 match icon {
-                    ICON_USER => {
-                        if self.auth_account.is_none() {
-                            self.screen = Screen::AuthPrompt {
-                                pending: AuthPending::None,
-                            };
-                        }
+                    ICON_USER if self.auth_account.is_none() => {
+                        self.screen = Screen::AuthPrompt {
+                            pending: AuthPending::None,
+                        };
                     }
                     ICON_LINK => {
                         self.links_open = !self.links_open;
