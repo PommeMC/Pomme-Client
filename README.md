@@ -1,33 +1,36 @@
-https://discord.gg/ucBA55bHPR
+<p align="center">
+  <h1 align="center">POMC</h1>
+  <p align="center">A high-performance Minecraft client written in Rust</p>
+  <p align="center">
+    <a href="https://discord.gg/ucBA55bHPR">Discord</a> · <a href="https://github.com/Purdze/POMC/issues">Issues</a> · <a href="https://github.com/Purdze/POMC/releases">Releases</a>
+  </p>
+</p>
 
-# POMC
+---
 
-A Minecraft client written in Rust from scratch. POMC connects to vanilla Minecraft servers, renders the world using Vulkan, and handles player physics — all without relying on Mojang's Java codebase.
+POMC is a from-scratch Minecraft: Java Edition client built entirely in Rust. It connects to vanilla servers, renders the world through Vulkan, and handles physics, networking, and UI without any Mojang code. The goal is a lightweight, performant alternative to the official Java client.
 
-## Why POMC?
+## Features
 
-- **Performance** — Native code with zero garbage collection pauses. GPU rendering through Vulkan via ash.
-- **Low memory footprint** — No JVM overhead. Runs comfortably on hardware that struggles with vanilla Java Edition.
-- **Cross-platform** — Builds natively on Windows, Linux, and macOS from a single codebase.
-- **Hackable** — Clean, modular Rust codebase. Easy to understand, modify, and extend.
+- **Vulkan rendering** -chunk meshing, frustum culling, water/lava, sky, block overlays, hand animation
+- **Vanilla-exact physics** -sprinting, swimming, drowning, collision, all matched against decompiled source
+- **Full protocol support** -connects to 1.21.11 servers via azalea-protocol, handles chunk streaming, block updates, chat
+- **Microsoft authentication** -sign in with your Microsoft account, tokens stored in the OS keyring
+- **HUD & menus** -health, hunger, air bubbles, hotbar, F3 debug, chat, pause menu, options, server list
+- **Launcher** -Tauri-based launcher with frosted glass UI, multi-account management, Mojang patch notes, installation manager
 
-## Current Status
+## Architecture
 
-POMC is in active early development, working through milestones toward a fully playable client.
+```
+pomc/             Minecraft client (Rust, Vulkan)
+launcher/         Launcher app (Tauri, React, TypeScript)
+```
 
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 1 | Window + GPU initialization | Done |
-| 2 | Camera movement + basic rendering | Done |
-| 3 | Server connection + protocol handling | Done |
-| 4 | Terrain rendering with textures | Done |
-| 5 | Player physics + collision | Done |
-| 6 | HUD, chat, inventory | Done |
-| 7 | Main menu, server list, settings | Done |
-| 8 | Vulkan renderer (ash + gpu-allocator) | Done |
-| 9 | GPU-driven rendering | Planned |
+The client is a standalone binary that receives launch arguments from the launcher. The launcher handles authentication, asset downloading, version management, and spawns the client with the appropriate flags.
 
 ## Building
+
+### Client
 
 Requires the [Vulkan SDK](https://vulkan.lunarg.com/) and a Rust toolchain.
 
@@ -35,52 +38,37 @@ Requires the [Vulkan SDK](https://vulkan.lunarg.com/) and a Rust toolchain.
 cargo build --release
 ```
 
-Assets are automatically downloaded on first run — no manual setup needed.
+### Launcher
+
+Requires [Node.js](https://nodejs.org/) and [pnpm](https://pnpm.io/).
+
+```bash
+cd launcher
+pnpm install
+pnpm tauri build
+```
 
 ## Running
 
+**Via the launcher** (recommended):
 ```bash
-# Launch the client (opens main menu)
-cargo run --release
-
-# Connect directly to a server
-cargo run --release -- --server localhost:25565 --username Steve
-
-# With authentication (for online-mode servers)
-cargo run --release -- \
-  --server mc.example.com \
-  --username Player \
-  --uuid <your-uuid> \
-  --access-token <your-token>
+cd launcher && pnpm tauri dev
 ```
 
-### Optional flags
+**Standalone client**:
+```bash
+cargo run --release -- --server localhost:25565 --username Steve
+```
 
-| Flag | Description |
-|------|-------------|
-| `--server <host:port>` | Connect directly to a server |
-| `--username <name>` | Player name (default: Steve) |
-| `--uuid <uuid>` | Player UUID for authenticated sessions |
-| `--access-token <token>` | Minecraft auth token |
-| `--game-dir <path>` | Override data directory |
-| `--assets-dir <path>` | Override assets directory |
-| `--version <ver>` | MC version for asset download (default: 1.21.11) |
+## Contributing
 
-## Tech Stack
-
-| Component | Crate |
-|-----------|-------|
-| Vulkan bindings | `ash` |
-| GPU memory | `gpu-allocator` |
-| Windowing | `winit` |
-| Math | `glam` |
-| Protocol | `azalea-protocol` |
-| Async runtime | `tokio` |
-| Textures | `png`, `image` |
-| Parallel meshing | `rayon` |
-| Font rendering | `fontdue` |
-| Shader compilation | `shaderc` |
+Contributions are welcome. Please open an issue first to discuss what you'd like to change.
 
 ## License
 
 GPL-3.0-or-later. This project is not affiliated with Mojang or Microsoft.
+
+## Community
+
+[![Discord](https://img.shields.io/discord/1351635498498867313?color=5865F2&label=Discord&logo=discord&logoColor=white)](https://discord.gg/ucBA55bHPR)
+[![Sponsor](https://img.shields.io/badge/Sponsor-Purdze-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/Purdze)
