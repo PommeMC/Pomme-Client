@@ -654,7 +654,7 @@ impl ApplicationHandler for App {
         self.window = Some(window);
         self.apply_cursor_grab();
     }
-    
+
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
