@@ -655,6 +655,7 @@ impl ApplicationHandler for App {
         self.apply_cursor_grab();
     }
 
+    // noinspection D
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
@@ -670,62 +671,73 @@ impl ApplicationHandler for App {
                     renderer.resize(new_size);
                 }
             }
-            WindowEvent::KeyboardInput { event, .. } => {
-                if matches!(self.state, GameState::Menu) {
-                    self.input.on_menu_key_event(&event);
-                } else if matches!(self.state, GameState::Connecting) {
+            WindowEvent::KeyboardInput { event, .. } => match self.state {
+                GameState::Menu => self.input.on_menu_key_event(&event),
+                GameState::Connecting => {
                     if event.state.is_pressed() {
                         if let PhysicalKey::Code(KeyCode::Escape) = event.physical_key {
                             self.disconnect_to_menu(None);
                         }
                     }
-                } else if matches!(self.state, GameState::InGame) {
+                }
+                GameState::InGame => {
                     if event.state.is_pressed() {
                         if let PhysicalKey::Code(code) = event.physical_key {
-                            match code {
-                                KeyCode::Escape => {
-                                    if self.inventory_open {
-                                        self.inventory_open = false;
-                                    } else if self.chat.is_open() {
+                            if self.chat.is_open() {
+                                match code {
+                                    KeyCode::Escape => {
                                         self.chat.close();
-                                    } else {
-                                        self.paused = !self.paused;
+                                        self.apply_cursor_grab();
                                     }
-                                    self.apply_cursor_grab();
+                                    KeyCode::F3 => self.show_debug = !self.show_debug,
+                                    _ => self.input.on_menu_key_event(&event),
                                 }
-                                KeyCode::KeyE if !self.paused && !self.chat.is_open() => {
-                                    self.inventory_open = !self.inventory_open;
-                                    self.apply_cursor_grab();
+                            } else {
+                                match code {
+                                    KeyCode::Escape => {
+                                        if self.inventory_open {
+                                            self.inventory_open = false;
+                                        } else if self.chat.is_open() {
+                                            self.chat.close();
+                                        } else {
+                                            self.paused = !self.paused;
+                                        }
+                                        self.apply_cursor_grab();
+                                    }
+                                    KeyCode::KeyE if !self.paused && !self.chat.is_open() => {
+                                        self.inventory_open = !self.inventory_open;
+                                        self.apply_cursor_grab();
+                                    }
+                                    KeyCode::KeyT
+                                        if !self.paused
+                                            && !self.chat.is_open()
+                                            && !self.inventory_open =>
+                                    {
+                                        self.chat.open();
+                                        self.apply_cursor_grab();
+                                    }
+                                    KeyCode::Slash
+                                        if !self.paused
+                                            && !self.chat.is_open()
+                                            && !self.inventory_open =>
+                                    {
+                                        self.chat.open_with_slash();
+                                        self.apply_cursor_grab();
+                                    }
+                                    KeyCode::F3 => {
+                                        self.show_debug = !self.show_debug;
+                                    }
+                                    _ => {}
                                 }
-                                KeyCode::KeyT
-                                    if !self.paused
-                                        && !self.chat.is_open()
-                                        && !self.inventory_open =>
-                                {
-                                    self.chat.open();
-                                    self.apply_cursor_grab();
-                                }
-                                KeyCode::Slash
-                                    if !self.paused
-                                        && !self.chat.is_open()
-                                        && !self.inventory_open =>
-                                {
-                                    self.chat.open_with_slash();
-                                    self.apply_cursor_grab();
-                                }
-                                KeyCode::F3 => {
-                                    self.show_debug = !self.show_debug;
-                                }
-                                _ if self.chat.is_open() => self.input.on_menu_key_event(&event),
-                                _ => {}
                             }
                         }
                     }
+
                     if !self.paused && !self.chat.is_open() && !self.inventory_open {
                         self.input.on_key_event(&event);
                     }
                 }
-            }
+            },
             WindowEvent::MouseWheel { delta, .. } => {
                 let scroll = match delta {
                     winit::event::MouseScrollDelta::LineDelta(_, y) => y,
