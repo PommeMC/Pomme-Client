@@ -1075,6 +1075,7 @@ body {
   color: var(--text-dim);
   line-height: 1.5;
   display: -webkit-box;
+  line-clamp: 2;
   -webkit-line-clamp: 2;
   line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -1152,6 +1153,7 @@ body {
   line-height: 1.6;
   flex: 1;
   display: -webkit-box;
+  line-clamp: 3;
   -webkit-line-clamp: 3;
   line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -1615,6 +1617,7 @@ body {
 }
 
 .dialog-resolution input[type="number"] {
+  appearance: textfield;
   -moz-appearance: textfield;
   appearance: textfield;
 }

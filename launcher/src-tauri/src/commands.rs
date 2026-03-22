@@ -244,7 +244,7 @@ pub async fn launch_game(app: AppHandle, uuid: Option<String>, server: Option<St
 
     cmd.stderr(Stdio::piped());
 
-    if debug_enabled.unwrap_or(true) {
+    if debug_enabled.unwrap_or(false) {
         cmd.env("RUST_LOG", "debug");
 
         match app.webview_windows().get("console") {
