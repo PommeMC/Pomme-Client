@@ -274,7 +274,10 @@ async fn listen_for_callback(expected_state: &str) -> Result<String, String> {
         return Err("State mismatch".to_string());
     }
 
-    let code = params.get("code").ok_or("Missing auth code")?.to_string();
+    let raw_code = params.get("code").ok_or("Missing auth code")?;
+    let code = urlencoding::decode(raw_code)
+        .map_err(|e| format!("Failed to decode auth code: {e}"))?
+        .into_owned();
 
     send_http_response(
         &mut stream,
