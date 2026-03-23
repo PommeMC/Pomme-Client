@@ -8,10 +8,7 @@ interface HomepageProps {
   openPatchNote: (item: PatchNote) => Promise<void>;
 }
 
-export default function Homepage({
-  handleLaunch,
-  openPatchNote,
-}: HomepageProps) {
+export default function Homepage({ handleLaunch, openPatchNote }: HomepageProps) {
   const [versionDropdownOpen, setVersionDropdownOpen] = useState(false);
 
   const {
@@ -41,18 +38,13 @@ export default function Homepage({
           disabled={launching}
         >
           <HiPlay className="play-icon" />
-          <span className="play-text">
-            {launching ? "LAUNCHING..." : "PLAY"}
-          </span>
+          <span className="play-text">{launching ? "LAUNCHING..." : "PLAY"}</span>
         </button>
       </div>
 
       <div className="version-badge-wrapper">
         {versionDropdownOpen && (
-          <div
-            className="click-away"
-            onClick={() => setVersionDropdownOpen(false)}
-          />
+          <div className="click-away" onClick={() => setVersionDropdownOpen(false)} />
         )}
         <button
           className="version-badge"
@@ -60,9 +52,7 @@ export default function Homepage({
         >
           <HiCube className="version-badge-icon" />
           <span>{selectedVersion}</span>
-          <HiChevronDown
-            className={`version-badge-arrow ${versionDropdownOpen ? "open" : ""}`}
-          />
+          <HiChevronDown className={`version-badge-arrow ${versionDropdownOpen ? "open" : ""}`} />
         </button>
         {versionDropdownOpen && (
           <div className="version-dropdown">
@@ -91,29 +81,18 @@ export default function Homepage({
         <h2 className="news-heading">LATEST NEWS</h2>
         <div className="news-grid">
           {news.slice(0, 3).map((item) => (
-            <div
-              className="news-card"
-              key={item.version}
-              onClick={() => openPatchNote(item)}
-            >
-              <div
-                className="news-card-img"
-                style={{ backgroundImage: `url(${item.image_url})` }}
-              >
+            <div className="news-card" key={item.version} onClick={() => openPatchNote(item)}>
+              <div className="news-card-img" style={{ backgroundImage: `url(${item.image_url})` }}>
                 <span className="news-type-badge">{item.entry_type}</span>
               </div>
               <div className="news-card-body">
-                <span className="news-date">
-                  {item.date.replace(/-/g, ".")}
-                </span>
+                <span className="news-date">{item.date.replace(/-/g, ".")}</span>
                 <h3 className="news-title">{item.title}</h3>
                 <p className="news-desc">{item.summary}</p>
               </div>
             </div>
           ))}
-          {news.length === 0 && (
-            <p className="news-loading">Loading patch notes...</p>
-          )}
+          {news.length === 0 && <p className="news-loading">Loading patch notes...</p>}
         </div>
       </div>
     </div>

@@ -97,9 +97,7 @@ export default function InstallationsPage() {
                   className="install-action-btn delete"
                   title="Delete"
                   onClick={() => {
-                    setInstallations((prev) =>
-                      prev.filter((i) => i.id !== inst.id),
-                    );
+                    setInstallations((prev) => prev.filter((i) => i.id !== inst.id));
                     if (activeInstall === inst.id) {
                       setActiveInstall("default");
                     }

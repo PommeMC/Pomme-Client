@@ -18,7 +18,9 @@ export default function FriendsPage() {
               <span className="mock-friend-name">{f.name}</span>
               <span className="mock-friend-status">{f.server}</span>
             </div>
-            <button className="mock-join-btn"><HiPlay /> Join</button>
+            <button className="mock-join-btn">
+              <HiPlay /> Join
+            </button>
             <div className="mock-dot on" />
           </div>
         ))}
@@ -37,5 +39,5 @@ export default function FriendsPage() {
         ))}
       </div>
     </div>
-  )
+  );
 }

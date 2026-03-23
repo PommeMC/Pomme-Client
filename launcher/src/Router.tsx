@@ -4,7 +4,7 @@ import Console from "./components/Console";
 import { AppStateProvider } from "./lib/state";
 
 export default function Router() {
-  if (getCurrentWindow().label === "console") return <Console />
+  if (getCurrentWindow().label === "console") return <Console />;
 
   return (
     <AppStateProvider>

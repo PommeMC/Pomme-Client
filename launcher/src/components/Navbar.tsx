@@ -41,7 +41,6 @@ interface NavProps {
   startAddAccount: () => void;
   switchAccount: (index: number) => void;
   removeAccount: (uuid: string) => void;
-
 }
 
 export default function Navbar({ startAddAccount, switchAccount, removeAccount }: NavProps) {
@@ -57,7 +56,6 @@ export default function Navbar({ startAddAccount, switchAccount, removeAccount }
 
     activeIndex,
     authLoading,
-
   } = useAppStateContext();
 
   return (
@@ -91,10 +89,7 @@ export default function Navbar({ startAddAccount, switchAccount, removeAccount }
         {account ? (
           <div className="account-switcher">
             {accountDropdownOpen && (
-              <div
-                className="click-away"
-                onClick={() => setAccountDropdownOpen(false)}
-              />
+              <div className="click-away" onClick={() => setAccountDropdownOpen(false)} />
             )}
             <button
               className="account-bar"
@@ -102,14 +97,10 @@ export default function Navbar({ startAddAccount, switchAccount, removeAccount }
             >
               <div
                 className="mc-head"
-                style={
-                  skinUrl ? { backgroundImage: `url(${skinUrl})` } : undefined
-                }
+                style={skinUrl ? { backgroundImage: `url(${skinUrl})` } : undefined}
               />
               <span className="account-username">{account.username}</span>
-              <HiChevronDown
-                className={`account-arrow ${accountDropdownOpen ? "open" : ""}`}
-              />
+              <HiChevronDown className={`account-arrow ${accountDropdownOpen ? "open" : ""}`} />
             </button>
             {accountDropdownOpen && (
               <div className="account-dropdown-menu">
@@ -118,25 +109,15 @@ export default function Navbar({ startAddAccount, switchAccount, removeAccount }
                     key={acc.uuid}
                     className={`account-option ${i === activeIndex ? "active" : ""}`}
                   >
-                    <button
-                      className="account-option-btn"
-                      onClick={() => switchAccount(i)}
-                    >
+                    <button className="account-option-btn" onClick={() => switchAccount(i)}>
                       {acc.username}
                     </button>
-                    <button
-                      className="account-remove"
-                      onClick={() => removeAccount(acc.uuid)}
-                    >
+                    <button className="account-remove" onClick={() => removeAccount(acc.uuid)}>
                       <HiTrash />
                     </button>
                   </div>
                 ))}
-                <button
-                  className="account-add"
-                  onClick={startAddAccount}
-                  disabled={authLoading}
-                >
+                <button className="account-add" onClick={startAddAccount} disabled={authLoading}>
                   <HiUserPlus />
                   <span>{authLoading ? "Signing in..." : "Add account"}</span>
                 </button>
@@ -163,11 +144,7 @@ export default function Navbar({ startAddAccount, switchAccount, removeAccount }
             )}
           </div>
         ) : (
-          <button
-            className="sign-in-sidebar"
-            onClick={startAddAccount}
-            disabled={authLoading}
-          >
+          <button className="sign-in-sidebar" onClick={startAddAccount} disabled={authLoading}>
             {authLoading ? "Signing in..." : "SIGN IN"}
           </button>
         )}

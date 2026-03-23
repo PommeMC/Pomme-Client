@@ -75,6 +75,14 @@ jobs:
         working-directory: launcher
         run: pnpm install
 
+      - name: Format check
+        working-directory: launcher
+        run: pnpm format:check
+
+      - name: Lint
+        working-directory: launcher
+        run: pnpm lint
+
       - name: Type check
         working-directory: launcher
         run: pnpm exec tsc --noEmit

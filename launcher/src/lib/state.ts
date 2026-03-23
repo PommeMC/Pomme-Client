@@ -28,8 +28,7 @@ const useAppState = () => {
   const [activeInstall, setActiveInstall] = useState("default");
   const [editingInstall, setEditingInstall] = useState<Installation | null>(null);
   const [dialogVersionOpen, setDialogVersionOpen] = useState(false);
-  const selectedVersion =
-    installations.find((i) => i.id === activeInstall)?.version || "1.21.11";
+  const selectedVersion = installations.find((i) => i.id === activeInstall)?.version || "1.21.11";
   const [versions, setVersions] = useState<GameVersion[]>([]);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [launching, setLaunching] = useState(false);
