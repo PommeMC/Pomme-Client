@@ -261,7 +261,9 @@ impl Drop for VulkanContext {
             self.device.destroy_command_pool(self.command_pool, None);
 
             // Allocator must be dropped before the device
-            drop(self.allocator.lock().unwrap());
+            // unwrap_or_else recovers the allocator from a poisoned mutex so a
+            // panic during init (e.g. OOM) doesn't cause a second panic here.
+            drop(self.allocator.lock().unwrap_or_else(|e| e.into_inner()));
 
             self.device.destroy_device(None);
 
