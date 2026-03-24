@@ -47,6 +47,7 @@ const useLauncherSettings = () => {
     setLaunchWithConsole,
   };
 };
+
 const useAppState = () => {
   const [page, setPage] = useState<Page>("home");
   const [accounts, setAccounts] = useState<AuthAccount[]>([]);

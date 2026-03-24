@@ -1,7 +1,7 @@
-import {useAppStateContext} from "../lib/state";
+import { useAppStateContext } from "../lib/state";
 
 export default function SettingsPage() {
-  const {launcherSettings} = useAppStateContext();
+  const { launcherSettings } = useAppStateContext();
 
   return (
     <div className="page settings-page">
@@ -32,7 +32,7 @@ export default function SettingsPage() {
                 launcherSettings.setKeepLauncherOpen(!launcherSettings.keepLauncherOpen)
               }
             >
-              <div className="settings-toggle-knob"/>
+              <div className="settings-toggle-knob" />
             </button>
           </div>
         </div>
@@ -51,7 +51,7 @@ export default function SettingsPage() {
                 launcherSettings.setLaunchWithConsole(!launcherSettings.launchWithConsole)
               }
             >
-              <div className="settings-toggle-knob"/>
+              <div className="settings-toggle-knob" />
             </button>
           </div>
         </div>
