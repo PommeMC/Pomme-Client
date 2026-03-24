@@ -8,7 +8,7 @@ import {
 import { AuthAccount, GameVersion, PatchNote } from "./lib/types";
 import Homepage from "./pages/Home";
 import InstallationsPage from "./pages/Installations";
-import { useAppStateContext } from "./lib/state";
+import {useAppStateContext} from "./lib/state";
 import Navbar from "./components/Navbar";
 import ModsPage from "./pages/Mods";
 import ServersPage from "./pages/Servers";
@@ -27,7 +27,6 @@ function App() {
     setActiveIndex,
     setAccountDropdownOpen,
     server,
-
     setInstallations,
     editingInstall,
     setEditingInstall,

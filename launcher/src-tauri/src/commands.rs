@@ -1,5 +1,6 @@
 use crate::storage;
 
+use crate::config::LauncherSettings;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::process::Stdio;
@@ -412,4 +413,9 @@ fn find_client_binary() -> Result<std::path::PathBuf, String> {
     }
 
     Err("POMC client not found. It will be bundled in future releases.".into())
+}
+
+#[tauri::command]
+pub async fn load_launcher_settings() -> LauncherSettings{
+    LauncherSettings::load()
 }

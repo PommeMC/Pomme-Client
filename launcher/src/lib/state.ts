@@ -1,6 +1,22 @@
-import { createElement, createContext, useContext, useState, ReactNode } from "react";
-import { Page, AuthAccount, Installation, GameVersion, PatchNote } from "./types";
+import {createElement, createContext, useContext, useState, ReactNode, useEffect} from "react";
+import { Page, AuthAccount, Installation, GameVersion, PatchNote, LauncherSettings } from "./types";
+import {invoke} from "@tauri-apps/api/core";
 
+const useLauncherSettings = () => {
+  const [launcherSettings, setLauncherSettings] = useState<LauncherSettings>({
+    language: "English",
+    keepLauncherOpen: true,
+    launchWithConsole: false,
+  });
+
+  useEffect(() => {
+    invoke<LauncherSettings>("load_launcher_settings")
+      .then((settings) => setLauncherSettings(settings))
+      .catch(console.error);
+  }, []);
+
+  return launcherSettings;
+}
 const useAppState = () => {
   const [page, setPage] = useState<Page>("home");
   const [accounts, setAccounts] = useState<AuthAccount[]>([]);
@@ -44,6 +60,9 @@ const useAppState = () => {
     title: string;
     body: string;
   } | null>(null);
+
+  const launcherSettings= useLauncherSettings();
+  console.log(launcherSettings);
 
   return {
     account,
@@ -92,6 +111,8 @@ const useAppState = () => {
     selectedNote,
     setSelectedNote,
     username,
+
+    launcherSettings,
   };
 };
 
@@ -99,9 +120,9 @@ type AppState = ReturnType<typeof useAppState>;
 
 const AppStateContext = createContext<AppState | null>(null);
 
-export function AppStateProvider({ children }: { children: ReactNode }) {
+export function AppStateProvider({children}: { children: ReactNode }) {
   const state = useAppState();
-  return createElement(AppStateContext.Provider, { value: state }, children);
+  return createElement(AppStateContext.Provider, {value: state}, children);
 }
 
 export function useAppStateContext(): AppState {

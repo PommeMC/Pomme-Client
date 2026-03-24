@@ -31,3 +31,9 @@ export interface PatchNote {
   entry_type: string;
   content_path: string;
 }
+
+export interface LauncherSettings {
+  language: string;
+  keepLauncherOpen: boolean;
+  launchWithConsole: boolean;
+}

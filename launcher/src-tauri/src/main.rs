@@ -5,6 +5,7 @@ use tokio::sync::Mutex;
 
 mod auth;
 mod commands;
+mod config;
 mod downloader;
 mod storage;
 
@@ -40,7 +41,8 @@ fn main() {
             commands::get_patch_notes,
             commands::get_patch_content,
             commands::launch_game,
-            commands::get_client_logs
+            commands::get_client_logs,
+            commands::load_launcher_settings,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run POMC launcher");
