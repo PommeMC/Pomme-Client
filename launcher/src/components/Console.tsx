@@ -39,14 +39,14 @@ const Log = ({ log, filter }: { log: string; filter: Filter }) => {
 
   let render = false;
   if (
-    (type == "INFO" && filter.info_enabled) ||
-    (type == "WARN" && filter.warn_enabled) ||
-    (type == "DEBUG" && filter.debug_enabled) ||
-    (type == "ERROR" && filter.error_enabled)
+    (type === "INFO" && filter.info_enabled) ||
+    (type === "WARN" && filter.warn_enabled) ||
+    (type === "DEBUG" && filter.debug_enabled) ||
+    (type === "ERROR" && filter.error_enabled)
   )
     render = true;
 
-  if (filter.search && !log.includes(filter.search as string)) render = false;
+  if (filter.search && !log.includes(filter.search)) render = false;
 
   if (!render) return null;
 

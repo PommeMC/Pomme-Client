@@ -1105,7 +1105,7 @@ body {
 }
 
 .news-loading {
-  grid-column: 1 2 -1;
+  grid-column: 1 / -1;
   text-align: center;
   color: var(--text-muted);
   font-size: 12px;
@@ -2525,12 +2525,6 @@ body {
     --color: var(--text-muted);
   }
 
-  &.active {
-    box-shadow:
-      0 2px 20px color-mix(in srgb, var(--color) 15%, transparent),
-      inset 0 1px 0 rgba(255, 255, 255, 0.15);
-  }
-
   border: 2px solid var(--color);
   color: var(--color);
 }
@@ -2547,9 +2541,6 @@ body {
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s;
-  box-shadow:
-    0 2px 20px color-mix(in srgb, var(--console-error) 15%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
   position: relative;
   overflow: hidden;
   margin-right: 10px;
@@ -2567,10 +2558,6 @@ body {
 
   padding: 8px;
   color: var(--text);
-
-  box-shadow:
-    0 2px 20px color-mix(in srgb, var(--console-debug) 15%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
 }
 
 .clipboard-icon {
