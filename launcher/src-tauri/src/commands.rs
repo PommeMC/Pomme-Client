@@ -478,5 +478,5 @@ fn servers_path() -> std::path::PathBuf {
 
 #[tauri::command]
 pub async fn create_installation(_installation: Installation) -> Result<(), String> {
-    Ok(())
+    Ok(()) // TODO: create_installation backend
 }

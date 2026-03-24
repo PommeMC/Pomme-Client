@@ -6,12 +6,12 @@ import {
   AuthAccount,
   DownloadProgress,
   GameVersion,
-  Installation,
   LauncherSettings,
   OpenedDialog,
   Page,
   PatchNote,
 } from "./types";
+import { useInstallations } from "./installations.ts";
 
 const useLauncherSettings = () => {
   const [launcherSettings, setLauncherSettings] = useState<LauncherSettings>({
@@ -71,22 +71,7 @@ const useAppState = () => {
   const [modView, setModView] = useState<"list" | "grid">("list");
   const [modSearch, setModSearch] = useState("");
   const [modFilter, setModFilter] = useState("all");
-  const [installations, setInstallations] = useState<Installation[]>([
-    {
-      id: "1773000000-a4f3",
-      icon: null,
-      name: "My Installation",
-      version: "26.1",
-      lastPlayed: 1774342800,
-      createdAt: 1773000000,
-      directory: "my-installation",
-      width: 854,
-      height: 480,
-      can_delete: false,
-    },
-  ]);
-  const [activeInstall, setActiveInstall] = useState("default");
-  const selectedVersion = installations.find((i) => i.id === activeInstall)?.version || ""; // TODO: remove
+  const [dialogVersionOpen, setDialogVersionOpen] = useState(false);
   const [versions, setVersions] = useState<GameVersion[]>([]);
   const [launching, setLaunching] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
@@ -102,8 +87,6 @@ const useAppState = () => {
     body: string;
     image_url: string;
   } | null>(null);
-
-  const launcherSettings = useLauncherSettings();
 
   return {
     account,
@@ -122,11 +105,8 @@ const useAppState = () => {
     setModSearch,
     modFilter,
     setModFilter,
-    installations,
-    setInstallations,
-    activeInstall,
-    setActiveInstall,
-    selectedVersion,
+    dialogVersionOpen,
+    setDialogVersionOpen,
     versions,
     setVersions,
     launching,
@@ -147,8 +127,9 @@ const useAppState = () => {
     openedDialog,
     setOpenedDialog,
 
-    launcherSettings,
+    launcherSettings: useLauncherSettings(),
     ...useServers(),
+    ...useInstallations(),
   };
 };
 

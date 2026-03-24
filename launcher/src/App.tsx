@@ -26,8 +26,8 @@ function App() {
     setAccounts,
     setActiveIndex,
     server,
-    selectedVersion,
     setVersions,
+    activeInstall,
     setLaunching,
     setAuthLoading,
     setStatus,
@@ -154,14 +154,14 @@ function App() {
     setLaunching(true);
     setStatus("Checking assets...");
     try {
-      await invoke("ensure_assets", { version: selectedVersion });
+      await invoke("ensure_assets", { version: activeInstall?.version });
       setDownloadProgress(null);
       setStatus("Launching Pomme...");
       const result = await invoke<string>("launch_game", {
         uuid: account?.uuid || null,
         server: server || null,
         debugEnabled: launcherSettings.launchWithConsole || null,
-        version: selectedVersion,
+        version: activeInstall?.version,
       });
       setStatus(result);
     } catch (e) {
@@ -176,7 +176,7 @@ function App() {
     setLaunching,
     setStatus,
     setDownloadProgress,
-    selectedVersion,
+    activeInstall?.version,
     account?.uuid,
     server,
     launcherSettings.launchWithConsole,
