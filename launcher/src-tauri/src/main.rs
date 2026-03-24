@@ -6,6 +6,7 @@ use tokio::sync::Mutex;
 mod auth;
 mod commands;
 mod downloader;
+mod installations;
 mod ping;
 mod settings;
 mod storage;
