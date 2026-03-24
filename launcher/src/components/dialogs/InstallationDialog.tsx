@@ -24,12 +24,15 @@ export function InstallationDialog(dialogProps: InstallationDialogProps) {
   function createEmptyInstallation(): Installation {
     return {
       id: crypto.randomUUID(),
+      icon: null,
       name: "",
       version: versions[0]?.id || "",
       lastPlayed: null,
       directory: "",
       width: 854,
       height: 480,
+      can_delete: false,
+      createdAt: Date.now(),
     };
   }
 

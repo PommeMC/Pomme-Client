@@ -8,6 +8,8 @@ import {
   HiTrash,
 } from "react-icons/hi2";
 import { useAppStateContext } from "../lib/state";
+import { useEffect } from "react";
+import { formatRelativeDate } from "../lib/helpers.ts";
 
 export default function InstallationsPage() {
   const {
@@ -18,6 +20,14 @@ export default function InstallationsPage() {
     setPage,
     setOpenedDialog,
   } = useAppStateContext();
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setInstallations((prev) => [...prev]);
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [setInstallations]);
 
   return (
     <div className="page installs-page">
@@ -46,7 +56,9 @@ export default function InstallationsPage() {
               <span className="install-card-name">{inst.name}</span>
               <span className="install-card-version">{inst.version}</span>
             </div>
-            <span className="install-card-played">{inst.lastPlayed || "Never"}</span>
+            <span className="install-card-played">
+              {inst.lastPlayed ? formatRelativeDate(inst.lastPlayed) : "Never"}
+            </span>
             <button
               className="install-play-btn"
               onClick={() => {
@@ -81,15 +93,18 @@ export default function InstallationsPage() {
                 onClick={() => {
                   const dup = {
                     ...inst,
-                    id: Date.now().toString(36),
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
                     name: `${inst.name} (copy)`,
+                    lastPlayed: null,
+                    createdAt: Date.now(),
+                    can_delete: true,
                   };
                   setInstallations((prev) => [...prev, dup]);
                 }}
               >
                 <HiDocumentDuplicate />
               </button>
-              {inst.id !== "default" && (
+              {inst.can_delete && (
                 <button
                   className="install-action-btn delete"
                   title="Delete"

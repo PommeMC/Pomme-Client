@@ -26,12 +26,15 @@ export interface AuthAccount {
 
 export interface Installation {
   id: string;
+  icon: string | null;
   name: string;
   version: string;
-  lastPlayed: string | null;
+  lastPlayed: number | null;
+  createdAt: number;
   directory: string;
   width: number;
   height: number;
+  can_delete: boolean;
 }
 
 export interface GameVersion {

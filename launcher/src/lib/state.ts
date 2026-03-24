@@ -73,17 +73,20 @@ const useAppState = () => {
   const [modFilter, setModFilter] = useState("all");
   const [installations, setInstallations] = useState<Installation[]>([
     {
-      id: "default",
-      name: "Latest Release",
-      version: "",
-      lastPlayed: "Today",
-      directory: "default",
+      id: "1773000000-a4f3",
+      icon: null,
+      name: "My Installation",
+      version: "26.1",
+      lastPlayed: 1774342800,
+      createdAt: 1773000000,
+      directory: "my-installation",
       width: 854,
       height: 480,
+      can_delete: false,
     },
   ]);
   const [activeInstall, setActiveInstall] = useState("default");
-  const selectedVersion = installations.find((i) => i.id === activeInstall)?.version || "";
+  const selectedVersion = installations.find((i) => i.id === activeInstall)?.version || ""; // TODO: remove
   const [versions, setVersions] = useState<GameVersion[]>([]);
   const [launching, setLaunching] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
