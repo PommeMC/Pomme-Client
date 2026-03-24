@@ -1504,28 +1504,59 @@ fn chunk_lod(pos: azalea_core::position::ChunkPos, player: azalea_core::position
     }
 }
 
+fn stack_render_count(count: i32) -> usize {
+    if count <= 1 {
+        1
+    } else if count <= 16 {
+        2
+    } else if count <= 32 {
+        3
+    } else if count <= 48 {
+        4
+    } else {
+        5
+    }
+}
+
+fn seeded_rand(state: &mut u32) -> f32 {
+    *state = state.wrapping_mul(1103515245).wrapping_add(12345);
+    ((*state >> 16) & 0x7FFF) as f32 / 0x7FFF as f32
+}
+
 fn build_item_render_infos(
     entity_store: &crate::entity::ItemEntityStore,
     camera_pos: glam::DVec3,
     partial_tick: f32,
 ) -> Vec<crate::renderer::pipelines::item_entity::ItemRenderInfo> {
-    entity_store
-        .visible_items(camera_pos, 64.0)
-        .iter()
-        .map(|item| {
-            let age_f = item.age as f32 + partial_tick;
-            let bob_y = (age_f / 10.0 + item.bob_offset).sin() * 0.1 + 0.1;
-            let spin = age_f / 20.0 + item.bob_offset;
-            let pos = item.position.as_vec3();
-            let model = glam::Mat4::from_translation(pos + glam::Vec3::new(0.0, bob_y, 0.0))
-                * glam::Mat4::from_rotation_y(spin)
-                * glam::Mat4::from_scale(glam::Vec3::splat(0.25));
-            crate::renderer::pipelines::item_entity::ItemRenderInfo {
+    let mut infos = Vec::new();
+    for item in entity_store.visible_items(camera_pos, 64.0) {
+        let age_f = item.age as f32 + partial_tick;
+        let bob_y = (age_f / 10.0 + item.bob_offset).sin() * 0.1 + 0.1;
+        let spin = age_f / 20.0 + item.bob_offset;
+        let pos = item.position.as_vec3();
+        let copies = stack_render_count(item.count);
+
+        let mut rng_state = (item.bob_offset * 1000.0) as u32;
+        for i in 0..copies {
+            let offset = if i == 0 {
+                glam::Vec3::ZERO
+            } else {
+                let rx = seeded_rand(&mut rng_state) * 0.3 - 0.15;
+                let ry = seeded_rand(&mut rng_state) * 0.3 - 0.15;
+                let rz = seeded_rand(&mut rng_state) * 0.3 - 0.15;
+                glam::Vec3::new(rx, ry, rz)
+            };
+            let model =
+                glam::Mat4::from_translation(pos + glam::Vec3::new(0.0, bob_y, 0.0) + offset)
+                    * glam::Mat4::from_rotation_y(spin)
+                    * glam::Mat4::from_scale(glam::Vec3::splat(0.25));
+            infos.push(crate::renderer::pipelines::item_entity::ItemRenderInfo {
                 item_name: item.item_name.clone(),
                 model_matrix: model,
-            }
-        })
-        .collect()
+            });
+        }
+    }
+    infos
 }
 
 pub fn run(

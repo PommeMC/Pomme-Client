@@ -759,6 +759,13 @@ impl Renderer {
                 model,
                 &self.atlas.uv_map,
             );
+        } else {
+            self.item_entity_pipeline.ensure_flat_mesh(
+                &self.ctx.device,
+                &self.ctx.allocator,
+                name,
+                &self.atlas.uv_map,
+            );
         }
     }
 
