@@ -487,15 +487,25 @@ impl ChunkBufferStore {
         unsafe {
             device.cmd_bind_vertex_buffers(cmd, 0, &[self.vertex_buffer], &[0]);
             device.cmd_bind_index_buffer(cmd, self.index_buffer, 0, vk::IndexType::UINT32);
-            device.cmd_draw_indexed_indirect_count(
-                cmd,
-                self.indirect_buffers[frame],
-                0,
-                self.count_buffers[frame],
-                0,
-                max_draws,
-                std::mem::size_of::<DrawCommand>() as u32,
-            );
+            if cfg!(target_os = "macos") {
+                device.cmd_draw_indexed_indirect(
+                    cmd,
+                    self.indirect_buffers[frame],
+                    0,
+                    max_draws,
+                    std::mem::size_of::<DrawCommand>() as u32,
+                );
+            } else {
+                device.cmd_draw_indexed_indirect_count(
+                    cmd,
+                    self.indirect_buffers[frame],
+                    0,
+                    self.count_buffers[frame],
+                    0,
+                    max_draws,
+                    std::mem::size_of::<DrawCommand>() as u32,
+                );
+            }
         }
     }
 
