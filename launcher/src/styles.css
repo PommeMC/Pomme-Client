@@ -978,11 +978,12 @@ body {
 }
 
 .download-progress-bar {
+  position: relative;
   width: 300px;
   height: 4px;
   background: rgba(255, 255, 255, 0.1);
   border-radius: 2px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .download-progress-fill {
@@ -991,6 +992,18 @@ body {
   border-radius: 2px;
   transition: width 0.3s ease;
 }
+
+.skin-runner {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  pointer-events: none;
+  transition: left 0.3s ease;
+  z-index: 1;
+}
+
 
 /* ═══ Server Bar ═══ */
 
