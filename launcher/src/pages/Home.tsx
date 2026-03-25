@@ -15,11 +15,11 @@ export default function Homepage({ handleLaunch, openPatchNote }: HomepageProps)
     installations,
     activeInstall,
     setActiveInstall,
-    setEditingInstall,
     news,
     status,
     downloadProgress,
     skinUrl,
+    setOpenedDialog,
   } = useAppStateContext();
 
   const { ref: versionDropdownRef, ...versionDropdown } = useDropdown();
@@ -66,18 +66,7 @@ export default function Homepage({ handleLaunch, openPatchNote }: HomepageProps)
                   className={`version-item`}
                   onClick={() => {
                     versionDropdown.close();
-                    setEditingInstall({
-                      id: "",
-                      icon: null,
-                      name: "",
-                      version: "26.1",
-                      lastPlayed: null,
-                      createdAt: -1,
-                      directory: "",
-                      width: 854,
-                      height: 480,
-                      can_delete: true,
-                    });
+                    setOpenedDialog({ name: "installation", props: { editing: false } });
                   }}
                 >
                   <span className="version-item-id">Create a new installation</span>

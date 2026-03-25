@@ -3,7 +3,6 @@ import { Installation } from "./types.ts";
 
 export const useInstallations = () => {
   const [installations, setInstallations] = useState<Installation[]>([]);
-  const [editingInstall, setEditingInstall] = useState<Installation | null>(null);
   const [activeInstall, setActiveInstall] = useState<Installation | null>(null);
   const [selectedInstall, setSelectedInstall] = useState<Installation | null>(null);
 
@@ -14,7 +13,5 @@ export const useInstallations = () => {
     setActiveInstall,
     selectedInstall,
     setSelectedInstall,
-    editingInstall,
-    setEditingInstall,
   };
 };

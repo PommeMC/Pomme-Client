@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openNativeDialog } from "@tauri-apps/plugin-dialog";
 import { useState } from "react";
 import { HiChevronDown, HiFolder } from "react-icons/hi2";
+import { normalizeDirectoryName } from "../../lib/helpers.ts";
 import { useDropdown } from "../../lib/hooks.ts";
 import { useAppStateContext } from "../../lib/state.ts";
 import { GameVersion, Installation } from "../../lib/types.ts";
@@ -39,6 +40,7 @@ export function InstallationDialog(dialogProps: InstallationDialogProps) {
   const editing = dialogProps.editing;
 
   const { ref: versionDropdownRef, ...versionDropdown } = useDropdown();
+  const [directoryTouched, setDirectoryTouched] = useState(false);
   const [showSnapshots, setShowSnapshots] = useState(false);
   const [editingInstall, setEditingInstall] = useState<Installation>(() =>
     dialogProps.editing ? { ...dialogProps.installation } : createEmptyInstallation(),
@@ -53,7 +55,17 @@ export function InstallationDialog(dialogProps: InstallationDialogProps) {
           <label>NAME</label>
           <input
             value={editingInstall.name}
-            onChange={(e) => setEditingInstall((prev) => ({ ...prev, name: e.target.value }))}
+            onChange={(e) => {
+              const name = e.target.value;
+              setEditingInstall((prev) => {
+                if (!prev) return prev;
+                return {
+                  ...prev,
+                  name,
+                  directory: directoryTouched ? prev.directory : normalizeDirectoryName(name),
+                };
+              });
+            }}
             placeholder="My Installation"
             autoFocus
           />
@@ -108,9 +120,14 @@ export function InstallationDialog(dialogProps: InstallationDialogProps) {
           <div className="dialog-browse">
             <input
               value={editingInstall.directory}
-              onChange={(e) =>
-                setEditingInstall((prev) => ({ ...prev, directory: e.target.value }))
-              }
+              onChange={(e) => {
+                const dirname = e.target.value;
+                setDirectoryTouched(dirname !== "");
+                setEditingInstall((prev) => ({
+                  ...prev,
+                  directory: dirname,
+                }));
+              }}
               placeholder="default"
             />
             <button
@@ -170,27 +187,37 @@ export function InstallationDialog(dialogProps: InstallationDialogProps) {
               ...editingInstall,
               id: editingInstall.id || crypto.randomUUID(),
               name: editingInstall.name || "Installation",
-              directory: editingInstall.directory || "default",
+              directory: normalizeDirectoryName(
+                editingInstall.directory || editingInstall.name || "default",
+              ),
             };
-            setInstallations((prev) =>
-              editing ? prev.map((i) => (i.id === install.id ? install : i)) : [...prev, install],
-            );
 
             if (editingInstall.version === "") {
               console.error("Invalid version");
               return;
             }
 
+            setInstallations((prev) => {
+              const filtered = prev.filter((i) => i.id !== install.id);
+              return [...filtered, install];
+            });
+
             setOpenedDialog(null);
             if (!editing) {
               setPage("home");
-              setDownloadProgress({ downloaded: 0, total: 1, status: "Starting install..." });
+              setDownloadProgress({
+                downloaded: 0,
+                total: 1,
+                status: "Starting install...",
+              });
+
               try {
                 await invoke("ensure_assets", { version: install.version });
                 setStatus(`${install.name} ready`);
               } catch (e) {
                 setStatus(`Install failed: ${e}`);
               }
+
               setDownloadProgress(null);
               setTimeout(() => setStatus(""), 3000);
             }
