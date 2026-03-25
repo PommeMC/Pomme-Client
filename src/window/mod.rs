@@ -1352,6 +1352,7 @@ impl ApplicationHandler for App {
                                     renderer.camera_yaw(),
                                     renderer.camera_pitch(),
                                 );
+                                renderer.update_third_person_distance(eye_pos, &self.chunk_store);
 
                                 let sw = renderer.screen_width() as f32;
                                 let sh = renderer.screen_height() as f32;
@@ -1501,7 +1502,7 @@ impl ApplicationHandler for App {
                                 let destroy_info = self.interaction.destroy_stage();
 
                                 let alpha = self.tick_accumulator / TICK_RATE;
-                                let entity_renders: Vec<EntityRenderInfo> = self
+                                let mut entity_renders: Vec<EntityRenderInfo> = self
                                     .entity_store
                                     .living
                                     .values()
@@ -1533,6 +1534,28 @@ impl ApplicationHandler for App {
                                         }
                                     })
                                     .collect();
+
+                                if !renderer.is_first_person() {
+                                    log::info!(
+                                        "Third person: self at ({}, {}, {}), yaw={}",
+                                        interp_pos.x,
+                                        interp_pos.y,
+                                        interp_pos.z,
+                                        renderer.camera_yaw().to_degrees()
+                                    );
+                                    entity_renders.push(EntityRenderInfo {
+                                        x: interp_pos.x as f64,
+                                        y: interp_pos.y as f64,
+                                        z: interp_pos.z as f64,
+                                        yaw: renderer.camera_yaw().to_degrees(),
+                                        pitch: 0.0,
+                                        head_yaw: renderer.camera_yaw().to_degrees(),
+                                        is_baby: false,
+                                        walk_anim_pos: 0.0,
+                                        walk_anim_speed: 0.0,
+                                        entity_kind: azalea_registry::builtin::EntityKind::Player,
+                                    });
+                                }
 
                                 let sky = crate::renderer::SkyState {
                                     day_time: self.sky_state.day_time,

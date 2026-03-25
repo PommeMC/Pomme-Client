@@ -12,7 +12,7 @@ const NEAR: f32 = 0.1;
 const FAR: f32 = 1000.0;
 const SENSITIVITY: f32 = 0.003;
 const PITCH_LIMIT: f32 = std::f32::consts::FRAC_PI_2 - 0.01;
-const THIRD_PERSON_DISTANCE: f32 = 4.0;
+pub const THIRD_PERSON_DISTANCE: f32 = 4.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum CameraMode {
@@ -37,6 +37,7 @@ pub struct Camera {
     pub yaw: f32,
     pub pitch: f32,
     pub mode: CameraMode,
+    pub third_person_dist: f32,
     aspect_ratio: f32,
     pub base_fov_degrees: f32,
     fov_modifier: f32,
@@ -51,6 +52,7 @@ impl Camera {
             yaw: 0.0,
             pitch: 0.0,
             mode: CameraMode::FirstPerson,
+            third_person_dist: THIRD_PERSON_DISTANCE,
             aspect_ratio,
             base_fov_degrees: DEFAULT_FOV_DEGREES,
             fov_modifier: 1.0,
@@ -134,8 +136,8 @@ impl Camera {
     pub fn third_person_offset(&self) -> Vec3 {
         match self.mode {
             CameraMode::FirstPerson => Vec3::ZERO,
-            CameraMode::ThirdPersonBack => -self.forward_vec() * THIRD_PERSON_DISTANCE,
-            CameraMode::ThirdPersonFront => self.forward_vec() * THIRD_PERSON_DISTANCE,
+            CameraMode::ThirdPersonBack => -self.forward_vec() * self.third_person_dist,
+            CameraMode::ThirdPersonFront => self.forward_vec() * self.third_person_dist,
         }
     }
 

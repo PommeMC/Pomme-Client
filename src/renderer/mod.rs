@@ -550,6 +550,38 @@ impl Renderer {
         self.camera.pitch = pitch;
     }
 
+    pub fn update_third_person_distance(
+        &mut self,
+        eye_pos: glam::Vec3,
+        chunks: &crate::world::chunk::ChunkStore,
+    ) {
+        if self.camera.mode == camera::CameraMode::FirstPerson {
+            return;
+        }
+        let dir = match self.camera.mode {
+            camera::CameraMode::ThirdPersonBack => -self.camera.forward_vec(),
+            camera::CameraMode::ThirdPersonFront => self.camera.forward_vec(),
+            _ => return,
+        };
+        let max = camera::THIRD_PERSON_DISTANCE;
+        let mut dist = max;
+        let step = 0.1;
+        let mut t = 0.0;
+        while t < max {
+            let p = eye_pos + dir * t;
+            let bx = p.x.floor() as i32;
+            let by = p.y.floor() as i32;
+            let bz = p.z.floor() as i32;
+            let state = chunks.get_block_state(bx, by, bz);
+            if !state.is_air() {
+                dist = (t - 0.2).max(0.0);
+                break;
+            }
+            t += step;
+        }
+        self.camera.third_person_dist = dist;
+    }
+
     pub fn update_fov(&mut self, modifier: f32) {
         self.camera.update_fov_modifier(modifier);
     }
@@ -570,7 +602,6 @@ impl Renderer {
         self.camera.mode = self.camera.mode.cycle();
     }
 
-    #[allow(dead_code)]
     pub fn is_first_person(&self) -> bool {
         self.camera.mode == camera::CameraMode::FirstPerson
     }
