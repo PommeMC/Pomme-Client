@@ -1736,7 +1736,7 @@ fn build_sprite_atlas(
     )
 }
 
-const ITEM_ATLAS_SIZE: u32 = 512;
+const ITEM_ATLAS_SIZE: u32 = 1024;
 const ITEM_TILE: u32 = 16;
 const ITEM_GRID: u32 = ITEM_ATLAS_SIZE / ITEM_TILE;
 
@@ -1746,7 +1746,7 @@ fn build_item_atlas(
     command_pool: vk::CommandPool,
     allocator: &Arc<Mutex<Allocator>>,
     jar_assets_dir: &Path,
-    asset_index: &Option<AssetIndex>,
+    _asset_index: &Option<AssetIndex>,
 ) -> (
     ItemAtlas,
     vk::Image,
@@ -1759,38 +1759,20 @@ fn build_item_atlas(
     let mut regions = HashMap::new();
     let mut slot = 0u32;
 
-    let item_dir = resolve_asset_path(
-        jar_assets_dir,
-        asset_index,
-        "minecraft/textures/item/dummy.png",
-    );
-    let item_parent = item_dir.parent().unwrap_or(Path::new("."));
-
-    let block_dir = resolve_asset_path(
-        jar_assets_dir,
-        asset_index,
-        "minecraft/textures/block/dummy.png",
-    );
-    let block_parent = block_dir.parent().unwrap_or(Path::new("."));
+    let jar_base = jar_assets_dir.join("assets");
+    let item_parent = jar_base.join("minecraft/textures/item");
+    let block_parent = jar_base.join("minecraft/textures/block");
 
     let mut item_names: Vec<String> = Vec::new();
 
-    if let Ok(entries) = std::fs::read_dir(item_parent) {
-        for entry in entries.flatten() {
-            let fname = entry.file_name().to_string_lossy().to_string();
-            if fname.ends_with(".png") {
-                item_names.push(fname[..fname.len() - 4].to_string());
-            }
-        }
-    }
-
-    if let Ok(entries) = std::fs::read_dir(block_parent) {
-        for entry in entries.flatten() {
-            let fname = entry.file_name().to_string_lossy().to_string();
-            if fname.ends_with(".png") {
-                let name = fname[..fname.len() - 4].to_string();
-                if !item_names.contains(&name) {
-                    item_names.push(name);
+    for dir in [&item_parent, &block_parent] {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if let Some(name) = fname.strip_suffix(".png") {
+                    if !item_names.contains(&name.to_string()) {
+                        item_names.push(name.to_string());
+                    }
                 }
             }
         }

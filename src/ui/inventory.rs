@@ -1,6 +1,6 @@
 use azalea_inventory::ItemStack;
 
-use super::common::{self, WHITE};
+use super::common::{self, push_item_count, WHITE};
 use crate::player::inventory::{Inventory, item_resource_name};
 use crate::renderer::pipelines::menu_overlay::{MenuElement, SpriteId};
 
@@ -9,7 +9,6 @@ const INV_TEX_H: f32 = 166.0;
 const SLOT_STRIDE: f32 = 18.0;
 const SLOT_SIZE: f32 = 16.0;
 const LABEL_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
-const COUNT_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 const HIGHLIGHT_COLOR: [f32; 4] = [1.0, 1.0, 1.0, 0.5];
 
 struct SlotPos {
@@ -80,7 +79,6 @@ pub fn build_inventory(
             ox,
             oy,
             scale,
-            fs,
             &slot,
             cursor,
             hotbar.get(col).unwrap_or(&ItemStack::Empty),
@@ -101,7 +99,6 @@ pub fn build_inventory(
                 ox,
                 oy,
                 scale,
-                fs,
                 &slot,
                 cursor,
                 main.get(idx).unwrap_or(&ItemStack::Empty),
@@ -122,7 +119,6 @@ pub fn build_inventory(
             ox,
             oy,
             scale,
-            fs,
             &slot,
             cursor,
             armor.get(i).unwrap_or(&ItemStack::Empty),
@@ -143,7 +139,6 @@ pub fn build_inventory(
                 ox,
                 oy,
                 scale,
-                fs,
                 &slot,
                 cursor,
                 craft_in.get(idx).unwrap_or(&ItemStack::Empty),
@@ -158,7 +153,6 @@ pub fn build_inventory(
         ox,
         oy,
         scale,
-        fs,
         &craft_out_slot,
         cursor,
         inventory.craft_output(),
@@ -171,7 +165,6 @@ pub fn build_inventory(
         ox,
         oy,
         scale,
-        fs,
         &offhand_slot,
         cursor,
         inventory.offhand(),
@@ -188,7 +181,6 @@ fn build_slot(
     ox: f32,
     oy: f32,
     scale: f32,
-    fs: f32,
     slot: &SlotPos,
     cursor: (f32, f32),
     item: &ItemStack,
@@ -236,15 +228,7 @@ fn build_slot(
             });
 
             if data.count > 1 {
-                let count_str = data.count.to_string();
-                elements.push(MenuElement::Text {
-                    x: x + size - 1.0 * scale,
-                    y: y + size - fs - 1.0 * scale,
-                    text: count_str,
-                    scale: fs * 0.85,
-                    color: COUNT_COLOR,
-                    centered: false,
-                });
+                push_item_count(elements, x, y, size, scale, data.count);
             }
         }
     }

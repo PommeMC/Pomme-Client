@@ -35,6 +35,30 @@ pub fn push_overlay(elements: &mut Vec<MenuElement>, screen_w: f32, screen_h: f3
     });
 }
 
+const DIGIT_WIDTH: f32 = 6.0;
+
+pub fn push_item_count(
+    elements: &mut Vec<MenuElement>,
+    x: f32,
+    y: f32,
+    size: f32,
+    gs: f32,
+    count: i32,
+) {
+    let text = count.to_string();
+    let char_w = DIGIT_WIDTH * gs;
+    let text_w = text.len() as f32 * char_w;
+    let fs = DIGIT_WIDTH * gs;
+    elements.push(MenuElement::Text {
+        x: x + size + 1.0 * gs - text_w,
+        y: y + size - fs,
+        text,
+        scale: fs,
+        color: WHITE,
+        centered: false,
+    });
+}
+
 pub fn hit_test(cursor: (f32, f32), rect: [f32; 4]) -> bool {
     cursor.0 >= rect[0]
         && cursor.0 <= rect[0] + rect[2]
