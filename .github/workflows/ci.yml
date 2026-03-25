@@ -12,19 +12,7 @@ env:
 
 jobs:
   client:
-    strategy:
-      matrix:
-        include:
-          - os: windows-latest
-            artifact: pomc-client-windows
-            binary: target/release/pomc.exe
-          - os: ubuntu-latest
-            artifact: pomc-client-linux
-            binary: target/release/pomc
-          - os: macos-latest
-            artifact: pomc-client-macos
-            binary: target/release/pomc
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -32,23 +20,15 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Install Vulkan dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libvulkan-dev libxkbcommon-dev libwayland-dev
-
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: client-${{ runner.os }}
+          shared-key: client
           cache-on-failure: true
 
       - name: Format check
-        if: runner.os == 'Windows'
         run: cargo fmt -- --check
 
       - name: Clippy
-        if: runner.os == 'Windows'
         run: cargo clippy --release --all-targets --all-features -- -D warnings
 
       - name: Build
@@ -57,8 +37,55 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.binary }}
+          name: pomc-client-windows
+          path: target/release/pomc.exe
+
+  client-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install Vulkan dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev libxkbcommon-dev libwayland-dev
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: client-linux
+          cache-on-failure: true
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pomc-client-linux
+          path: target/release/pomc
+
+  client-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: client-macos
+          cache-on-failure: true
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pomc-client-macos
+          path: target/release/pomc
 
   launcher-backend:
     runs-on: windows-latest
