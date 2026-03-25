@@ -1243,6 +1243,7 @@ impl ApplicationHandler for App {
                                     self.player.health,
                                     self.player.food,
                                     self.player.air_supply,
+                                    self.player.inventory.hotbar_slots(),
                                     debug.as_ref(),
                                     self.menu.gui_scale_setting,
                                 );

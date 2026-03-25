@@ -1,6 +1,8 @@
 use azalea_core::position::BlockPos;
+use azalea_inventory::ItemStack;
 
 use super::common::WHITE;
+use crate::player::inventory::item_resource_name;
 use crate::renderer::pipelines::menu_overlay::{MenuElement, SpriteId};
 
 pub struct FrameTimings {
@@ -63,6 +65,7 @@ pub fn build_hud(
     health: f32,
     food: u32,
     air_supply: i32,
+    hotbar: &[ItemStack],
     debug: Option<&DebugInfo<'_>>,
     gui_scale_setting: u32,
 ) {
@@ -102,6 +105,33 @@ pub fn build_hud(
         sprite: SpriteId::HotbarSelection,
         tint: WHITE,
     });
+
+    let item_size = 16.0 * gs;
+    let item_fs = 6.0 * gs * 0.85;
+    for (i, item) in hotbar.iter().enumerate().take(9) {
+        if let ItemStack::Present(data) = item {
+            let ix = hotbar_x + 3.0 * gs + i as f32 * SLOT_STRIDE * gs;
+            let iy = hotbar_y + 3.0 * gs;
+            elements.push(MenuElement::ItemIcon {
+                x: ix,
+                y: iy,
+                w: item_size,
+                h: item_size,
+                item_name: item_resource_name(data.kind),
+                tint: WHITE,
+            });
+            if data.count > 1 {
+                elements.push(MenuElement::Text {
+                    x: ix + item_size - 1.0 * gs,
+                    y: iy + item_size - item_fs - 1.0 * gs,
+                    text: data.count.to_string(),
+                    scale: item_fs,
+                    color: WHITE,
+                    centered: false,
+                });
+            }
+        }
+    }
 
     build_status_bar(
         elements,
