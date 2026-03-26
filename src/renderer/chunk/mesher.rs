@@ -824,7 +824,7 @@ fn emit_baked_model(
         let region = uv_map.get_region(&quad.texture);
         let tint = tint_color(quad.tint, snapshot.grass_tint(bx, by, bz), snapshot.foliage_tint(bx, by, bz));
         let lights = if let Some(dir) = quad.cullface {
-            compute_face_ao(snapshot, bx, by, bz, dir)
+            compute_face_ao(snapshot, registry, bx, by, bz, dir)
         } else {
             [quad.shade_light; 4]
         };
@@ -873,7 +873,7 @@ fn emit_cube_faces(
         };
         let region = uv_map.get_region(face_tex);
         let (positions, uvs, _) = cube_face_geometry(*dir);
-        let lights = compute_face_ao(snapshot, bx, by, bz, *dir);
+        let lights = compute_face_ao(snapshot, registry, bx, by, bz, *dir);
 
         let is_side = i >= 2;
         if let Some(overlay) = textures.side_overlay.as_deref().filter(|_| is_side) {
@@ -1157,8 +1157,8 @@ fn emit_face(
     }
 }
 
-fn shade_brightness(state: azalea_block::BlockState) -> f32 {
-    if state.is_air() { 1.0 } else { 0.2 }
+fn shade_brightness(state: azalea_block::BlockState, registry: &BlockRegistry) -> f32 {
+    if registry.is_opaque_full_cube(state) { 0.2 } else { 1.0 }
 }
 
 fn vertex_ao(side1: f32, side2: f32, corner: f32) -> f32 {
@@ -1167,13 +1167,14 @@ fn vertex_ao(side1: f32, side2: f32, corner: f32) -> f32 {
 
 fn compute_face_ao(
     snapshot: &ChunkStoreSnapshot,
+    registry: &BlockRegistry,
     bx: i32,
     by: i32,
     bz: i32,
     dir: Direction,
 ) -> [f32; 4] {
     let s = |dx: i32, dy: i32, dz: i32| -> f32 {
-        shade_brightness(snapshot.get_block_state(bx + dx, by + dy, bz + dz))
+        shade_brightness(snapshot.get_block_state(bx + dx, by + dy, bz + dz), registry)
     };
     let l = |dx: i32, dy: i32, dz: i32| -> f32 {
         snapshot.get_light(bx + dx, by + dy, bz + dz)
