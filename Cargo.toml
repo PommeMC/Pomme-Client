@@ -10,7 +10,7 @@ ash-window = "0.13"
 gpu-allocator = { version = "0.28", features = ["vulkan"] }
 raw-window-handle = "0.6"
 winit = "0.30"
-glam = "0.30"
+glam = "0.32"
 clap = { version = "4", features = ["derive"] }
 thiserror = "2"
 parking_lot = "0.12"
