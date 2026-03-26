@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use std::num::NonZeroU64;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const MAX_NAME_LENGTH: usize = 25;
-const MAX_DIRNAME_LENGTH: usize = 32;
+const MAX_NAME_LENGTH: usize = 35;
+const MAX_DIRNAME_LENGTH: usize = 60;
 #[cfg(target_os = "windows")]
 const RESERVED_DIRNAMES: &[&str] = &[
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",

@@ -97,13 +97,11 @@ export default function InstallationsPage({ deleteInstallation }: InstallationsP
                 onClick={() => {
                   const dup = {
                     ...inst,
-                    id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    id: "",
                     name: `${inst.name} (copy)`,
-                    lastPlayed: null,
-                    createdAt: Date.now(),
-                    can_delete: true,
+                    directory: `${inst.directory}-copy`,
                   };
-                  setInstallations((prev) => [...prev, dup]);
+                  setEditingInstall(dup);
                 }}
               >
                 <HiDocumentDuplicate />

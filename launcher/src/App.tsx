@@ -216,9 +216,9 @@ function App() {
     }
   };
 
-  const deleteInstallation = async (installation_id: string): Promise<void> => {
+  const deleteInstallation = async (install_id: string): Promise<void> => {
     try {
-      await invokeDeleteInstallation(installation_id);
+      await invokeDeleteInstallation(install_id);
     } catch (e) {
       console.error("Failed to delete installation", e);
     }
