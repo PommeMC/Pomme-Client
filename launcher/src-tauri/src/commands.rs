@@ -1,9 +1,7 @@
 use crate::settings::LauncherSettings;
-use crate::{AppState, storage};
+use crate::{installations, storage, AppState};
 
-use crate::installations::{
-    Installation, InstallationError, InstallationRegistry, NewInstallPayload,
-};
+use crate::installations::{Installation, InstallationError, NewInstallPayload};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::process::Stdio;
@@ -477,12 +475,14 @@ pub async fn create_installation(
     state: State<'_, AppState>,
     payload: NewInstallPayload,
 ) -> Result<Installation, InstallationError> {
+    use installations::{fs, registry};
+
     let installation = Installation::try_new(payload)?;
 
     let _guard = state.installations_lock.lock().await;
 
-    storage::create_installation_fs(&installation)?;
-    InstallationRegistry::register(installation.clone())?;
+    fs::create_installation_fs(&installation)?;
+    registry::register(installation.clone())?;
 
     Ok(installation)
 }

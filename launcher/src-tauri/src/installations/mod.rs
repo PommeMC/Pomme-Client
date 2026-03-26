@@ -1,4 +1,6 @@
-use crate::storage::data_dir;
+pub mod fs;
+pub mod registry;
+
 use serde::{Deserialize, Serialize};
 use std::num::NonZeroU64;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -160,35 +162,5 @@ impl From<std::io::Error> for InstallationError {
 impl From<serde_json::Error> for InstallationError {
     fn from(e: serde_json::Error) -> Self {
         Self::Json(e.to_string())
-    }
-}
-
-pub struct InstallationRegistry;
-
-impl InstallationRegistry {
-    pub fn load() -> Result<Vec<Installation>, InstallationError> {
-        let path = data_dir().join("installations.json");
-        if !path.exists() {
-            return Ok(vec![]);
-        }
-        let raw = std::fs::read_to_string(&path)?;
-        Ok(serde_json::from_str(&raw)?)
-    }
-
-    pub fn save(list: &[Installation]) -> Result<(), InstallationError> {
-        let json = serde_json::to_string_pretty(list)?;
-        std::fs::write(data_dir().join("installations.json"), json)?;
-        Ok(())
-    }
-
-    pub fn register(installation: Installation) -> Result<(), InstallationError> {
-        let mut list = Self::load()?;
-
-        if list.iter().any(|i| i.directory == installation.directory) {
-            return Err(InstallationError::DirectoryAlreadyExists);
-        }
-
-        list.push(installation);
-        Self::save(&list)
     }
 }
