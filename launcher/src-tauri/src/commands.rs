@@ -1,15 +1,14 @@
 use crate::settings::LauncherSettings;
-use crate::storage;
+use crate::{AppState, storage};
 
-use crate::installations::Installation;
+use crate::installations::{
+    Installation, InstallationError, InstallationRegistry, NewInstallPayload,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::process::Stdio;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
-use tokio::{
-    io::{AsyncBufReadExt, BufReader},
-    sync::Mutex,
-};
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 #[derive(Deserialize)]
 struct MojangPatchNotes {
@@ -374,11 +373,11 @@ pub async fn launch_game(
                     val: Some(line.clone()),
                 },
             );
-            let state = app_handle.state::<Mutex<crate::AppState>>();
-            let mut state = state.lock().await;
-            state.client_logs.push_back(line);
-            if state.client_logs.len() > 10_000 {
-                state.client_logs.pop_front();
+            let state = app_handle.state::<AppState>();
+            let mut logs = state.client_logs.lock().await;
+            logs.push_back(line);
+            if logs.len() > 10_000 {
+                logs.pop_front();
             }
         }
     });
@@ -387,12 +386,9 @@ pub async fn launch_game(
 }
 
 #[tauri::command]
-pub async fn get_client_logs(
-    state: State<'_, Mutex<crate::AppState>>,
-) -> Result<VecDeque<String>, ()> {
-    let state = state.lock().await;
-
-    Ok(state.client_logs.clone())
+pub async fn get_client_logs(state: State<'_, AppState>) -> Result<VecDeque<String>, ()> {
+    let logs = state.client_logs.lock().await;
+    Ok(logs.clone())
 }
 
 fn find_client_binary() -> Result<std::path::PathBuf, String> {
@@ -477,6 +473,16 @@ fn servers_path() -> std::path::PathBuf {
 }
 
 #[tauri::command]
-pub async fn create_installation(_installation: Installation) -> Result<(), String> {
-    Ok(()) // TODO: create_installation backend
+pub async fn create_installation(
+    state: State<'_, AppState>,
+    payload: NewInstallPayload,
+) -> Result<Installation, InstallationError> {
+    let installation = Installation::try_new(payload)?;
+
+    let _guard = state.installations_lock.lock().await;
+
+    storage::create_installation_fs(&installation)?;
+    InstallationRegistry::register(installation.clone())?;
+
+    Ok(installation)
 }

@@ -13,9 +13,13 @@ export type InstallationDialogProps =
 
 export function InstallationDialog(dialogProps: InstallationDialogProps) {
   const {
+    versions,
+    invokeCreateInstallation,
+    installations,
+    activeInstall,
+    setActiveInstall,
     setPage,
     setInstallations,
-    versions,
     setVersions,
     setStatus,
     setDownloadProgress,
@@ -24,7 +28,7 @@ export function InstallationDialog(dialogProps: InstallationDialogProps) {
 
   function createEmptyInstallation(): Installation {
     return {
-      id: crypto.randomUUID(),
+      id: "",
       icon: null,
       name: "",
       version: versions[0]?.id || "",
@@ -32,10 +36,23 @@ export function InstallationDialog(dialogProps: InstallationDialogProps) {
       directory: "",
       width: 854,
       height: 480,
-      can_delete: false,
-      createdAt: Date.now(),
+      canDelete: false,
+      createdAt: 0,
     };
   }
+
+  const handleCreateInstallation = async (payload: Installation): Promise<Installation | null> => {
+    try {
+      const inst = await invokeCreateInstallation(payload);
+      setInstallations((prev) => [...prev, inst]);
+      if (!activeInstall) setActiveInstall(inst);
+      return inst;
+    } catch (e) {
+      console.log(e);
+      setStatus(`Failed to create installation: ${e}`);
+      return null;
+    }
+  };
 
   const editing = dialogProps.editing;
 
@@ -145,6 +162,12 @@ export function InstallationDialog(dialogProps: InstallationDialogProps) {
               <HiFolder />
             </button>
           </div>
+          <span
+            className="dialog-field-info"
+            hidden={editingInstall.directory === normalizeDirectoryName(editingInstall.directory)}
+          >
+            Will be created as: /{normalizeDirectoryName(editingInstall.directory)}
+          </span>
         </div>
         <div className="dialog-field">
           <label>RESOLUTION</label>
@@ -183,27 +206,30 @@ export function InstallationDialog(dialogProps: InstallationDialogProps) {
         <button
           className="dialog-save"
           onClick={async () => {
-            const install: Installation = {
+            const editedInstall: Installation = {
               ...editingInstall,
-              id: editingInstall.id || crypto.randomUUID(),
-              name: editingInstall.name || "Installation",
-              directory: normalizeDirectoryName(
-                editingInstall.directory || editingInstall.name || "default",
-              ),
+              name: editingInstall.name || "My Installation",
+              icon: editingInstall.icon || null,
+              version: editingInstall.version || versions[0]?.id || "",
+              width: editingInstall.width || 854,
+              height: editingInstall.height || 480,
             };
+            editedInstall.directory = normalizeDirectoryName(
+              editingInstall.directory || editedInstall.name,
+            );
 
             if (editingInstall.version === "") {
               console.error("Invalid version");
               return;
             }
 
-            setInstallations((prev) => {
-              const filtered = prev.filter((i) => i.id !== install.id);
-              return [...filtered, install];
-            });
+            // TODO: edit
 
-            setOpenedDialog(null);
             if (!editing) {
+              const install = await handleCreateInstallation(editedInstall);
+              if (!install) return;
+
+              setOpenedDialog(null);
               setPage("home");
               setDownloadProgress({
                 downloaded: 0,
@@ -219,6 +245,9 @@ export function InstallationDialog(dialogProps: InstallationDialogProps) {
               }
 
               setDownloadProgress(null);
+              if (installations.length === 0) {
+                setActiveInstall(install);
+              }
               setTimeout(() => setStatus(""), 3000);
             }
           }}

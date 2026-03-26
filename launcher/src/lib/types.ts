@@ -34,7 +34,7 @@ export interface Installation {
   directory: string;
   width: number;
   height: number;
-  can_delete: boolean;
+  canDelete: boolean;
 }
 
 export interface GameVersion {

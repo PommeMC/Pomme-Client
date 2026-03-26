@@ -14,8 +14,9 @@ mod storage;
 use std::collections::VecDeque;
 
 #[derive(Default)]
-struct AppState {
-    client_logs: VecDeque<String>,
+pub struct AppState {
+    pub client_logs: Mutex<VecDeque<String>>,
+    pub installations_lock: Mutex<()>,
 }
 
 fn main() {
@@ -27,7 +28,7 @@ fn main() {
     tauri::Builder::default()
         .setup(|app| {
             storage::ensure_dirs();
-            app.manage(Mutex::new(AppState::default()));
+            app.manage(AppState::default());
             Ok(())
         })
         .plugin(tauri_plugin_shell::init())

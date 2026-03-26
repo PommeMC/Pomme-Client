@@ -104,7 +104,7 @@ export default function InstallationsPage() {
               >
                 <HiDocumentDuplicate />
               </button>
-              {inst.can_delete && (
+              {inst.canDelete && (
                 <button
                   className="install-action-btn delete"
                   title="Delete"

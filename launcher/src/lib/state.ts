@@ -71,7 +71,6 @@ const useAppState = () => {
   const [modView, setModView] = useState<"list" | "grid">("list");
   const [modSearch, setModSearch] = useState("");
   const [modFilter, setModFilter] = useState("all");
-  const [dialogVersionOpen, setDialogVersionOpen] = useState(false);
   const [versions, setVersions] = useState<GameVersion[]>([]);
   const [launching, setLaunching] = useState(false);
   const [authLoading, setAuthLoading] = useState(false);
@@ -105,8 +104,6 @@ const useAppState = () => {
     setModSearch,
     modFilter,
     setModFilter,
-    dialogVersionOpen,
-    setDialogVersionOpen,
     versions,
     setVersions,
     launching,
