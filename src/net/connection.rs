@@ -316,7 +316,7 @@ fn extract_biome_climate(
     let mut result = std::collections::HashMap::new();
     let biome_key: azalea_registry::identifier::Identifier = "minecraft:worldgen/biome".into();
     if let Some(registry) = holder.extra.get(&biome_key) {
-        for (id, (name, nbt)) in registry.map.iter().enumerate() {
+        for (id, (_, nbt)) in registry.map.iter().enumerate() {
             let temp = nbt_float(nbt, "temperature").unwrap_or(0.8);
             let downfall = nbt_float(nbt, "downfall").unwrap_or(0.4);
 
