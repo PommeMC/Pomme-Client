@@ -40,7 +40,7 @@ function SortableServer({
   setMenuOpen: (ip: string | null) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: s.ip,
+    id: s.id,
   });
 
   const style = {
@@ -78,11 +78,11 @@ function SortableServer({
           <button
             className="server-menu-btn"
             onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => setMenuOpen(menuOpen === s.ip ? null : s.ip)}
+            onClick={() => setMenuOpen(menuOpen === s.id ? null : s.id)}
           >
             <HiEllipsisVertical />
           </button>
-          {menuOpen === s.ip && (
+          {menuOpen === s.id && (
             <>
               <div className="click-away" onClick={() => setMenuOpen(null)} />
               <div className="server-menu">
@@ -97,7 +97,7 @@ function SortableServer({
                 <button
                   className="server-menu-danger"
                   onClick={() => {
-                    removeServer(s.ip);
+                    removeServer(s.id);
                     setMenuOpen(null);
                   }}
                 >
@@ -120,7 +120,7 @@ export default function ServersPage({
   const { servers, addServer, editServer, moveServer, removeServer, pingAll } =
     useAppStateContext();
   const [addingServer, setAddingServer] = useState(false);
-  const [editingIp, setEditingIp] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newIp, setNewIp] = useState("");
@@ -141,7 +141,7 @@ export default function ServersPage({
   };
 
   const startEdit = (s: Server) => {
-    setEditingIp(s.ip);
+    setEditingId(s.id);
     setNewName(s.name);
     setNewIp(s.ip);
     setNewCategory(s.category);
@@ -150,9 +150,9 @@ export default function ServersPage({
   };
 
   const handleEdit = () => {
-    if (editingIp && newIp.trim()) {
-      editServer(editingIp, newName.trim() || newIp.trim(), newIp.trim(), newCategory.trim());
-      setEditingIp(null);
+    if (editingId && newIp.trim()) {
+      editServer(editingId, newName.trim() || newIp.trim(), newIp.trim(), newCategory.trim());
+      setEditingId(null);
       setNewName("");
       setNewIp("");
       setNewCategory("");
@@ -161,7 +161,7 @@ export default function ServersPage({
 
   const cancelForm = () => {
     setAddingServer(false);
-    setEditingIp(null);
+    setEditingId(null);
     setNewName("");
     setNewIp("");
     setNewCategory("");
@@ -176,7 +176,7 @@ export default function ServersPage({
     grouped[cat] = servers.filter((s) => (s.category || "") === cat);
   }
 
-  const showForm = addingServer || editingIp !== null;
+  const showForm = addingServer || editingId !== null;
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -217,7 +217,7 @@ export default function ServersPage({
             placeholder="Server Address"
             value={newIp}
             onChange={(e) => setNewIp(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && (editingIp ? handleEdit() : handleAdd())}
+            onKeyDown={(e) => e.key === "Enter" && (editingId ? handleEdit() : handleAdd())}
           />
           {customCategory ? (
             <input
@@ -225,7 +225,7 @@ export default function ServersPage({
               placeholder="New category name"
               value={newCategory}
               onChange={(e) => setNewCategory(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && (editingIp ? handleEdit() : handleAdd())}
+              onKeyDown={(e) => e.key === "Enter" && (editingId ? handleEdit() : handleAdd())}
             />
           ) : (
             <div className="category-dropdown-wrapper">
@@ -278,8 +278,8 @@ export default function ServersPage({
               )}
             </div>
           )}
-          <button className="servers-add-confirm" onClick={editingIp ? handleEdit : handleAdd}>
-            {editingIp ? "Save" : "Add"}
+          <button className="servers-add-confirm" onClick={editingId ? handleEdit : handleAdd}>
+            {editingId ? "Save" : "Add"}
           </button>
           <button className="servers-add-cancel" onClick={cancelForm}>
             Cancel
@@ -295,14 +295,14 @@ export default function ServersPage({
         modifiers={[restrictToWindowEdges]}
         onDragEnd={handleDragEnd}
       >
-        <SortableContext items={servers.map((s) => s.ip)} strategy={rectSortingStrategy}>
+        <SortableContext items={servers.map((s) => s.id)} strategy={rectSortingStrategy}>
           <div className="servers-grid">
             {servers.map((s, i) => {
               const cat = s.category || "";
               const prevCat = i > 0 ? servers[i - 1].category || "" : null;
               const showHeader = cat && cat !== prevCat;
               return (
-                <React.Fragment key={s.ip}>
+                <React.Fragment key={s.id}>
                   {showHeader && <h3 className="servers-category">{cat}</h3>}
                   <SortableServer
                     s={s}

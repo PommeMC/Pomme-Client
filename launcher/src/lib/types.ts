@@ -45,6 +45,7 @@ export interface LauncherSettings {
 }
 
 export interface Server {
+  id: string;
   name: string;
   ip: string;
   category: string;

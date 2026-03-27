@@ -18,6 +18,7 @@ export const useServers = () => {
     invoke<SavedServer[]>("load_servers").then((saved) => {
       setServers(
         saved.map((s) => ({
+          id: crypto.randomUUID(),
           name: s.name,
           ip: s.address,
           category: s.category || "",
@@ -42,12 +43,12 @@ export const useServers = () => {
     invoke("save_servers", { servers: saved }).catch(console.error);
   }, []);
 
-  const pingOne = useCallback(async (ip: string) => {
+  const pingOne = useCallback(async (id: string, ip: string) => {
     try {
       const status = await invoke<ServerStatus>("ping_server", { address: ip });
       setServers((prev) =>
         prev.map((s) =>
-          s.ip === ip
+          s.id === id
             ? {
                 ...s,
                 online: status.online,
@@ -61,14 +62,16 @@ export const useServers = () => {
         ),
       );
     } catch {
-      setServers((prev) => prev.map((s) => (s.ip === ip ? { ...s, online: false, ping: -1 } : s)));
+      setServers((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, online: false, ping: -1 } : s)),
+      );
     }
   }, []);
 
   const pingAll = useCallback(() => {
     setServers((prev) => {
       for (const s of prev) {
-        pingOne(s.ip);
+        pingOne(s.id, s.ip);
       }
       return prev;
     });
@@ -82,8 +85,8 @@ export const useServers = () => {
   }, [loaded, servers.length, pingAll]);
 
   const addServer = (name: string, ip: string, category = "") => {
-    if (servers.some((s) => s.ip === ip)) return;
     const server: Server = {
+      id: crypto.randomUUID(),
       name,
       ip,
       category,
@@ -99,38 +102,40 @@ export const useServers = () => {
       persist(next);
       return next;
     });
-    pingOne(ip);
+    pingOne(server.id, ip);
   };
 
-  const editServer = (oldIp: string, name: string, ip: string, category: string) => {
+  const editServer = (id: string, name: string, ip: string, category: string) => {
+    let ipChanged = false;
     setServers((prev) => {
-      const next = prev.map((s) => (s.ip === oldIp ? { ...s, name, ip, category } : s));
+      const existing = prev.find((s) => s.id === id);
+      ipChanged = existing ? existing.ip !== ip : false;
+      const next = prev.map((s) => (s.id === id ? { ...s, name, ip, category } : s));
       persist(next);
       return next;
     });
-    if (oldIp !== ip) {
-      pingOne(ip);
+    if (ipChanged) {
+      pingOne(id, ip);
     }
   };
 
-  const moveServer = (fromIp: string, toIp: string) => {
+  const moveServer = (fromId: string, toId: string) => {
     setServers((prev) => {
-      const fromIdx = prev.findIndex((s) => s.ip === fromIp);
-      const toIdx = prev.findIndex((s) => s.ip === toIp);
+      const fromIdx = prev.findIndex((s) => s.id === fromId);
+      const toIdx = prev.findIndex((s) => s.id === toId);
       if (fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return prev;
       const next = [...prev];
       const [moved] = next.splice(fromIdx, 1);
-      const targetCat = prev[toIdx].category;
-      moved.category = targetCat;
+      moved.category = prev[toIdx].category;
       next.splice(toIdx, 0, moved);
       persist(next);
       return next;
     });
   };
 
-  const removeServer = (ip: string) => {
+  const removeServer = (id: string) => {
     setServers((prev) => {
-      const next = prev.filter((s) => s.ip !== ip);
+      const next = prev.filter((s) => s.id !== id);
       persist(next);
       return next;
     });
