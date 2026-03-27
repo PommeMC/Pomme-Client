@@ -22,22 +22,22 @@ import { restrictToWindowEdges } from "@dnd-kit/modifiers";
 import { useAppStateContext } from "../lib/state";
 import { Server } from "../lib/types";
 
+const numFormatter = new Intl.NumberFormat();
+
 function SortableServer({
   s,
-  runGame,
+  handleLaunch,
   startEdit,
   removeServer,
   menuOpen,
   setMenuOpen,
-  numFormatter,
 }: {
   s: Server;
-  runGame: (ip: string) => void;
+  handleLaunch: (ip: string) => void;
   startEdit: (s: Server) => void;
   removeServer: (ip: string) => void;
   menuOpen: string | null;
   setMenuOpen: (ip: string | null) => void;
-  numFormatter: Intl.NumberFormat;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: s.ip,
@@ -70,7 +70,7 @@ function SortableServer({
         <button
           className="install-play-btn"
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => runGame(s.ip)}
+          onClick={() => handleLaunch(s.ip)}
         >
           <HiPlay /> Join
         </button>
@@ -112,8 +112,12 @@ function SortableServer({
   );
 }
 
-export default function ServersPage({ handleLaunch }: { handleLaunch: () => Promise<void> }) {
-  const { setServer, servers, addServer, editServer, moveServer, removeServer, pingAll } =
+export default function ServersPage({
+  handleLaunch,
+}: {
+  handleLaunch: (ip: string) => Promise<void>;
+}) {
+  const { servers, addServer, editServer, moveServer, removeServer, pingAll } =
     useAppStateContext();
   const [addingServer, setAddingServer] = useState(false);
   const [editingIp, setEditingIp] = useState<string | null>(null);
@@ -124,13 +128,7 @@ export default function ServersPage({ handleLaunch }: { handleLaunch: () => Prom
   const [customCategory, setCustomCategory] = useState(false);
   const [categoryDropdownOpen, setCategoryDropdownOpen] = useState(false);
 
-  const numFormatter = new Intl.NumberFormat();
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-
-  const runGame = (ip: string) => {
-    setServer(ip);
-    handleLaunch();
-  };
 
   const handleAdd = () => {
     if (newIp.trim()) {
@@ -308,12 +306,11 @@ export default function ServersPage({ handleLaunch }: { handleLaunch: () => Prom
                   {showHeader && <h3 className="servers-category">{cat}</h3>}
                   <SortableServer
                     s={s}
-                    runGame={runGame}
+                    handleLaunch={handleLaunch}
                     startEdit={startEdit}
                     removeServer={removeServer}
                     menuOpen={menuOpen}
                     setMenuOpen={setMenuOpen}
-                    numFormatter={numFormatter}
                   />
                 </React.Fragment>
               );

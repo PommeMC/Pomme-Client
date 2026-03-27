@@ -50,7 +50,7 @@ async fn ping_inner(address: &str) -> Result<ServerStatus, Box<dyn std::error::E
     let (mut host, mut port) = parse_address(address);
     if let Some((srv_host, srv_port)) = resolve_srv(&host).await {
         host = srv_host;
-        port = srv_port as u32;
+        port = srv_port;
     }
     let addr = format!("{host}:{port}");
     let mut stream = tokio::time::timeout(TIMEOUT, TcpStream::connect(&addr)).await??;
@@ -59,7 +59,7 @@ async fn ping_inner(address: &str) -> Result<ServerStatus, Box<dyn std::error::E
     write_varint(&mut handshake, 0x00);
     write_varint(&mut handshake, PROTOCOL_VERSION as u32);
     write_string(&mut handshake, &host);
-    handshake.extend_from_slice(&(port as u16).to_be_bytes());
+    handshake.extend_from_slice(&port.to_be_bytes());
     write_varint(&mut handshake, 1);
 
     let mut packet = Vec::new();
@@ -134,9 +134,9 @@ async fn ping_inner(address: &str) -> Result<ServerStatus, Box<dyn std::error::E
     })
 }
 
-fn parse_address(address: &str) -> (String, u32) {
+fn parse_address(address: &str) -> (String, u16) {
     if let Some((host, port_str)) = address.rsplit_once(':') {
-        if let Ok(port) = port_str.parse::<u32>() {
+        if let Ok(port) = port_str.parse::<u16>() {
             return (host.to_string(), port);
         }
     }

@@ -39,7 +39,7 @@ export const useServers = () => {
       address: s.ip,
       category: s.category || undefined,
     }));
-    invoke("save_servers", { servers: saved });
+    invoke("save_servers", { servers: saved }).catch(console.error);
   }, []);
 
   const pingOne = useCallback(async (ip: string) => {
@@ -82,6 +82,7 @@ export const useServers = () => {
   }, [loaded, servers.length, pingAll]);
 
   const addServer = (name: string, ip: string, category = "") => {
+    if (servers.some((s) => s.ip === ip)) return;
     const server: Server = {
       name,
       ip,
