@@ -1,4 +1,9 @@
 use crate::installations::{Id, Installation, InstallationDraft, InstallationError, fs};
+use fslock;
+
+pub fn lock() -> fslock::LockFile {
+    fslock::LockFile::open(&fs::registry_file()).unwrap()
+}
 
 pub fn load() -> Result<Vec<Installation>, InstallationError> {
     let contents = std::fs::read_to_string(fs::registry_file())?;

@@ -330,24 +330,25 @@ impl TryFrom<InstallationDraft> for Installation {
 //
 
 pub async fn load_installations() -> Result<Vec<Installation>, InstallationError> {
-    let mut installs = registry::load()?;
+    let installs = {
+        let _lock = registry::lock();
 
-    if !installs.iter().any(|i| i.id == Id::latest_release()) {
-        installs.insert(0, Installation::try_latest_release().await?);
-    }
-
-    if !installs.iter().any(|i| i.id == Id::latest_snapshot()) {
-        installs.insert(1, Installation::try_latest_snapshot().await?);
-    }
+        let mut installs = registry::load()?;
+        if !installs.iter().any(|i| i.id == Id::latest_release()) {
+            installs.insert(0, Installation::try_latest_release().await?);
+        }
+        if !installs.iter().any(|i| i.id == Id::latest_snapshot()) {
+            installs.insert(1, Installation::try_latest_snapshot().await?);
+        }
+        if let Some(err) = registry::save(&installs).err() {
+            log::warn!("Failed to save registry after loading: {err}");
+        }
+        installs
+    };
 
     for install in &installs {
         fs::ensure_install_fs(install)?;
     }
-
-    if let Some(err) = registry::save(&installs).err() {
-        log::warn!("Failed to save registry after loading installations: {err}");
-    }
-
     Ok(installs)
 }
 
@@ -355,10 +356,12 @@ pub async fn create_installation(
     payload: InstallationDraft,
 ) -> Result<Installation, InstallationError> {
     let install: Installation = payload.try_into()?;
-
-    registry::register(install.clone())?;
-
+    {
+        let _lock = registry::lock();
+        registry::register(install.clone())?;
+    }
     if let Err(e) = fs::ensure_install_fs(&install) {
+        let _lock = registry::lock();
         if let Err(rollback_err) = registry::unregister(&install.id) {
             log::warn!(
                 "Failed to roll back registry entry for `{}`: {}",
@@ -368,22 +371,22 @@ pub async fn create_installation(
         }
         return Err(e);
     }
-
     Ok(install)
 }
 
 pub async fn delete_installation(id: String) -> Result<(), InstallationError> {
     let id: Id = id.into();
-    let install = registry::find_by_id(&id)?;
-
-    if install.is_latest {
-        return Err(InstallationError::Other(
-            "Cannot delete a default installation".to_string(),
-        ));
-    }
-
-    registry::unregister(&id)?;
-
+    let install = {
+        let _lock = registry::lock();
+        let install = registry::find_by_id(&id)?;
+        if install.is_latest {
+            return Err(InstallationError::Other(
+                "Cannot delete a default installation".to_string(),
+            ));
+        }
+        registry::unregister(&id)?;
+        install
+    };
     if let Err(e) = fs::remove_install_fs(&install.directory) {
         log::warn!(
             "Failed to delete installation directory for `{}`: {}",
@@ -391,7 +394,6 @@ pub async fn delete_installation(id: String) -> Result<(), InstallationError> {
             e
         );
     }
-
     Ok(())
 }
 
@@ -400,12 +402,15 @@ pub async fn duplicate_installation(
     payload: InstallationDraft,
 ) -> Result<Installation, InstallationError> {
     let old_id: Id = old_id.into();
-    let old_install = registry::find_by_id(&old_id)?;
-    let new_install: Installation = payload.try_into()?;
-
-    registry::register(new_install.clone())?;
-
-    if let Err(e) = fs::duplicate_install_fs(&old_install.directory, &new_install.directory) {
+    let (old_dir, new_install) = {
+        let _lock = registry::lock();
+        let old_install = registry::find_by_id(&old_id)?;
+        let new_install: Installation = payload.try_into()?;
+        registry::register(new_install.clone())?;
+        (old_install.directory.clone(), new_install)
+    };
+    if let Err(e) = fs::duplicate_install_fs(&old_dir, &new_install.directory) {
+        let _lock = registry::lock();
         if let Err(rollback_err) = registry::unregister(&new_install.id) {
             log::warn!(
                 "Failed to roll back registry entry for `{}`: {}",
@@ -415,7 +420,6 @@ pub async fn duplicate_installation(
         }
         return Err(e);
     }
-
     if let Err(e) = fs::ensure_install_fs(&new_install) {
         log::warn!(
             "Failed to ensure fs for duplicated installation `{}`: {}",
@@ -423,7 +427,6 @@ pub async fn duplicate_installation(
             e
         );
     }
-
     Ok(new_install)
 }
 
@@ -432,23 +435,25 @@ pub async fn edit_installation(
     payload: InstallationDraft,
 ) -> Result<Installation, InstallationError> {
     let id: Id = id.into();
-    let old_install = registry::find_by_id(&id)?;
-    let old_dir = old_install.directory.clone();
-
-    let payload = if id == Id::latest_release() || id == Id::latest_snapshot() {
-        InstallationDraft {
-            name: old_install.name.clone().into(),
-            ..payload
-        }
-    } else {
-        payload
+    let (old_dir, old_install, new_install) = {
+        let _lock = registry::lock();
+        let old_install = registry::find_by_id(&id)?;
+        let old_dir = old_install.directory.clone();
+        let payload = if id == Id::latest_release() || id == Id::latest_snapshot() {
+            InstallationDraft {
+                name: old_install.name.clone().into(),
+                ..payload
+            }
+        } else {
+            payload
+        };
+        let new_install = registry::update(&id, payload)?;
+        (old_dir, old_install, new_install)
     };
-
-    let new_install = registry::update(&id, payload)?;
-
     if new_install.directory != old_dir
         && let Err(e) = fs::move_install_fs(&old_dir, &new_install.directory)
     {
+        let _lock = registry::lock();
         if let Err(rollback_err) = registry::update(&id, old_install.into()) {
             log::warn!(
                 "Failed to roll back registry entry for `{}`: {}",
