@@ -829,6 +829,7 @@ impl ApplicationHandler for App {
                     }
                     GameState::InGame => {
                         if event.state.is_pressed()
+                            && !event.repeat
                             && let PhysicalKey::Code(code) = event.physical_key
                         {
                             if self.chat.is_open() {
