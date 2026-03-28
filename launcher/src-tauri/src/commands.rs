@@ -525,11 +525,11 @@ pub async fn delete_installation(
     let _guard = state.installations_lock.lock().await;
     let id = Id::from(id);
 
-    if let Some(install) = registry::get(&id)? {
-        if !install.is_latest {
-            fs::remove_installation_fs(&install.directory)?;
-            registry::unregister(&id)?;
-        }
+    if let Some(install) = registry::get(&id)?
+        && !install.is_latest
+    {
+        fs::remove_installation_fs(&install.directory)?;
+        registry::unregister(&id)?;
     }
     Ok(())
 }

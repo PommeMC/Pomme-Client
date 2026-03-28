@@ -1,4 +1,4 @@
-import { HiMagnifyingGlass, HiListBullet, HiSquares2X2, HiPuzzlePiece } from "react-icons/hi2";
+import { HiListBullet, HiMagnifyingGlass, HiPuzzlePiece, HiSquares2X2 } from "react-icons/hi2";
 import { useAppStateContext } from "../lib/state";
 
 export default function ModsPage() {

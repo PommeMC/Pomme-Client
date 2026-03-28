@@ -1,15 +1,15 @@
+import { useEffect } from "react";
 import {
-  HiPlay,
   HiCube,
   HiDocumentDuplicate,
   HiFolder,
   HiPencil,
+  HiPlay,
   HiPlus,
   HiTrash,
 } from "react-icons/hi2";
-import { useAppStateContext } from "../lib/state";
-import { useEffect } from "react";
 import { formatRelativeDate } from "../lib/helpers.ts";
+import { useAppStateContext } from "../lib/state";
 
 interface InstallationsPageProps {
   deleteInstallation: (install_id: string) => Promise<void>;

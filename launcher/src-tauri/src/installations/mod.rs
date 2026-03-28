@@ -62,11 +62,11 @@ impl Id {
     }
 
     pub fn latest_release() -> Self {
-        Id(format!("latest-release"))
+        Id("latest-release".to_string())
     }
 
     pub fn latest_snapshot() -> Self {
-        Id(format!("latest-snapshot"))
+        Id("latest-snapshot".to_string())
     }
 }
 
@@ -87,10 +87,10 @@ impl TryFrom<String> for Name {
 }
 impl Name {
     pub fn latest_release() -> Self {
-        Name(format!("Latest Release"))
+        Name("Latest Release".to_string())
     }
     pub fn latest_snapshot() -> Self {
-        Name(format!("Latest Snapshot"))
+        Name("Latest Snapshot".to_string())
     }
 }
 
