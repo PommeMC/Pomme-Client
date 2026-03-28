@@ -3,7 +3,6 @@ use crate::renderer::pipelines::menu_overlay::{MenuElement, SpriteId};
 pub const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 pub const FONT_SIZE: f32 = 8.0;
 pub const BTN_H: f32 = 20.0;
-pub const BTN_NORMAL: [f32; 4] = [0.12, 0.13, 0.22, 0.7];
 pub const COL_DISABLED: [f32; 4] = [0.35, 0.36, 0.45, 1.0];
 const BTN_BORDER: f32 = 3.0;
 
@@ -70,11 +69,6 @@ pub fn push_button(
     hovered
 }
 
-const SLIDER_TRACK: [f32; 4] = [0.0, 0.0, 0.0, 0.5];
-const SLIDER_KNOB: [f32; 4] = [0.8, 0.8, 0.8, 1.0];
-const SLIDER_KNOB_HOVER: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-const SLIDER_KNOB_DRAG: [f32; 4] = [0.6, 0.75, 1.0, 1.0];
-
 #[allow(clippy::too_many_arguments)]
 pub fn push_slider(
     elements: &mut Vec<MenuElement>,
@@ -91,59 +85,53 @@ pub fn push_slider(
     dragging: bool,
 ) -> SliderResult {
     let hovered = hit_test(cursor, [x, y, w, h]);
-    let knob_w = 8.0 * gs;
-    let track_pad = 2.0 * gs;
-    let track_w = w - track_pad * 2.0;
-    let knob_x = x + track_pad + value.clamp(0.0, 1.0) * (track_w - knob_w);
+    let handle_w = 8.0 * gs;
+    let track_w = w - handle_w;
+    let handle_x = x + value.clamp(0.0, 1.0) * track_w;
 
     let actively_dragging = dragging && mouse_held;
     let start_drag = hovered && mouse_held && !dragging;
 
     let new_value = if actively_dragging || start_drag {
-        let rel = (cursor.0 - x - track_pad - knob_w / 2.0) / (track_w - knob_w);
+        let rel = (cursor.0 - x - handle_w / 2.0) / track_w;
         Some(rel.clamp(0.0, 1.0))
     } else {
         None
     };
 
-    elements.push(MenuElement::Rect {
+    let track_sprite = if hovered || actively_dragging {
+        SpriteId::SliderTrackHover
+    } else {
+        SpriteId::SliderTrack
+    };
+    elements.push(MenuElement::NineSlice {
         x,
         y,
         w,
         h,
-        corner_radius: 2.0 * gs,
-        color: SLIDER_TRACK,
+        sprite: track_sprite,
+        border: BTN_BORDER * gs,
+        tint: WHITE,
     });
 
-    let fill_w = knob_x - x + knob_w / 2.0;
-    elements.push(MenuElement::Rect {
-        x,
-        y,
-        w: fill_w,
-        h,
-        corner_radius: 2.0 * gs,
-        color: BTN_NORMAL,
-    });
-
-    let knob_color = if actively_dragging || start_drag {
-        SLIDER_KNOB_DRAG
-    } else if hovered {
-        SLIDER_KNOB_HOVER
+    let handle_sprite = if actively_dragging || start_drag || hovered {
+        SpriteId::SliderHandleHover
     } else {
-        SLIDER_KNOB
+        SpriteId::SliderHandle
     };
-    elements.push(MenuElement::Rect {
-        x: knob_x,
-        y: y + 1.0 * gs,
-        w: knob_w,
-        h: h - 2.0 * gs,
-        corner_radius: 2.0 * gs,
-        color: knob_color,
+    elements.push(MenuElement::NineSlice {
+        x: handle_x,
+        y,
+        w: handle_w,
+        h,
+        sprite: handle_sprite,
+        border: BTN_BORDER * gs,
+        tint: WHITE,
     });
 
     elements.push(MenuElement::Text {
         x: x + w / 2.0,
-        y: y + (h - fs) / 2.0,
+        y: y + (h - fs) / 2.0 + 1.0,
         text: label.into(),
         scale: fs,
         color: WHITE,

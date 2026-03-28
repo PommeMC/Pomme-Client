@@ -872,6 +872,10 @@ pub enum SpriteId {
     ButtonNormal,
     ButtonHover,
     ButtonDisabled,
+    SliderTrack,
+    SliderTrackHover,
+    SliderHandle,
+    SliderHandleHover,
 }
 
 struct SpriteRegion {
@@ -971,6 +975,22 @@ fn build_sprite_atlas(
         (
             SpriteId::ButtonDisabled,
             "minecraft/textures/gui/sprites/widget/button_disabled.png",
+        ),
+        (
+            SpriteId::SliderTrack,
+            "minecraft/textures/gui/sprites/widget/slider.png",
+        ),
+        (
+            SpriteId::SliderTrackHover,
+            "minecraft/textures/gui/sprites/widget/slider_highlighted.png",
+        ),
+        (
+            SpriteId::SliderHandle,
+            "minecraft/textures/gui/sprites/widget/slider_handle.png",
+        ),
+        (
+            SpriteId::SliderHandleHover,
+            "minecraft/textures/gui/sprites/widget/slider_handle_highlighted.png",
         ),
     ];
 
