@@ -40,7 +40,7 @@ export default function InstallationsPage({ deleteInstallation }: InstallationsP
         <button
           className="installs-new-btn"
           onClick={() => {
-            setOpenedDialog({ name: "installation", props: { editing: false } });
+            setOpenedDialog({ name: "installation", props: { type: "new" } });
           }}
         >
           <HiPlus /> New Installation
@@ -74,7 +74,7 @@ export default function InstallationsPage({ deleteInstallation }: InstallationsP
             </button>
             <button
               className="install-folder-btn"
-              onClick={() => console.log("Open:", inst.directory)}
+              onClick={() => console.log("Open " + inst.directory)}
             >
               <HiFolder />
             </button>
@@ -84,7 +84,7 @@ export default function InstallationsPage({ deleteInstallation }: InstallationsP
                 onClick={() => {
                   setOpenedDialog({
                     name: "installation",
-                    props: { editing: true, installation: { ...inst } },
+                    props: { type: "edit", installation: { ...inst } },
                   });
                 }}
                 title="Edit"
@@ -101,10 +101,11 @@ export default function InstallationsPage({ deleteInstallation }: InstallationsP
                     id: "",
                     name: `${inst.name} (copy)`,
                     directory: `${inst.directory}-copy`,
+                    is_latest: false,
                   };
                   setOpenedDialog({
                     name: "installation",
-                    props: { editing: true, installation: dup },
+                    props: { type: "dupl", installation: dup, original_id: inst.id },
                   });
                 }}
               >

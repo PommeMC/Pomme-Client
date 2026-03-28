@@ -511,3 +511,13 @@ pub async fn delete_installation(
     let _guard = state.installations_lock.lock().await;
     installations::delete_installation(id).await
 }
+
+#[tauri::command]
+pub async fn duplicate_installation(
+    state: State<'_, AppState>,
+    old_id: String,
+    payload: NewInstallPayload,
+) -> Result<Installation, InstallationError> {
+    let _guard = state.installations_lock.lock().await;
+    installations::duplicate_installation(old_id, payload).await
+}

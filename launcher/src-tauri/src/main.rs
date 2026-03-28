@@ -55,6 +55,7 @@ fn main() {
             commands::load_installations,
             commands::create_installation,
             commands::delete_installation,
+            commands::duplicate_installation,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Pomme launcher");

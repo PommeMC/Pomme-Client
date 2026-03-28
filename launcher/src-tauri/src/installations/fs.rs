@@ -5,6 +5,20 @@ use crate::{
 
 use std::path::{Path, PathBuf};
 
+fn copy_dir(src: &Path, dst: &Path) -> Result<(), InstallationError> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let dst_path = dst.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &dst_path)?;
+        } else {
+            std::fs::copy(entry.path(), dst_path)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn registry_file() -> PathBuf {
     let path = data_dir().join("installations.json");
     if !path.exists() {
@@ -39,4 +53,10 @@ pub fn remove_install_fs(dir: &Directory) -> Result<(), InstallationError> {
     std::fs::remove_dir_all(dir_path)?;
 
     Ok(())
+}
+
+pub fn duplicate_install_fs(src: &Directory, dst: &Directory) -> Result<(), InstallationError> {
+    let src_path: &Path = src.as_ref();
+    let dst_path: &Path = dst.as_ref();
+    copy_dir(src_path, dst_path)
 }

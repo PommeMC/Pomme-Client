@@ -66,7 +66,7 @@ export default function Homepage({ handleLaunch, openPatchNote }: HomepageProps)
                   className={`version-item`}
                   onClick={() => {
                     versionDropdown.close();
-                    setOpenedDialog({ name: "installation", props: { editing: false } });
+                    setOpenedDialog({ name: "installation", props: { type: "new" } });
                   }}
                 >
                   <span className="version-item-id">Create a new installation</span>

@@ -8,7 +8,7 @@ pub fn load() -> Result<Vec<Installation>, InstallationError> {
 }
 
 pub fn save(list: &[Installation]) -> Result<(), InstallationError> {
-    let contents = serde_json::to_string(list)?;
+    let contents = serde_json::to_string_pretty(list)?;
     std::fs::write(fs::registry_file(), contents)?;
     Ok(())
 }

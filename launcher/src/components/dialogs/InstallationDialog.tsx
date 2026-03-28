@@ -8,8 +8,9 @@ import { useAppStateContext } from "../../lib/state.ts";
 import { GameVersion, Installation, InstallationError } from "../../lib/types.ts";
 
 export type InstallationDialogProps =
-  | { editing: false }
-  | { editing: true; installation: Installation };
+  | { type: "new" }
+  | { type: "edit"; installation: Installation }
+  | { type: "dupl"; installation: Installation; original_id: string };
 
 function assertNever(x: never): never {
   throw new Error("Unhandled error: " + JSON.stringify(x));
@@ -41,11 +42,17 @@ function mapInstallationError(error: InstallationError): { name?: string; dir?: 
 }
 
 export function InstallationDialog({
-  handleCreateInstallation,
+  createInstallation,
+  duplicateInstallation,
   ...dialogProps
 }: InstallationDialogProps & {
-  handleCreateInstallation: (
+  createInstallation: (
     payload: Installation,
+  ) => Promise<[Installation, null] | [null, InstallationError]>;
+} & {
+  duplicateInstallation: (
+    original_id: string,
+    new_payload: Installation,
   ) => Promise<[Installation, null] | [null, InstallationError]>;
 }) {
   const {
@@ -73,7 +80,7 @@ export function InstallationDialog({
     };
   }
 
-  const editing = dialogProps.editing;
+  const dialogType = dialogProps.type;
 
   const { ref: versionDropdownRef, ...versionDropdown } = useDropdown();
   const [directoryTouched, setDirectoryTouched] = useState(false);
@@ -83,12 +90,24 @@ export function InstallationDialog({
   const [dirError, setDirError] = useState<string | null>(null);
 
   const [editingInstall, setEditingInstall] = useState<Installation>(() =>
-    dialogProps.editing ? { ...dialogProps.installation } : createEmptyInstallation(),
+    dialogType !== "new" ? { ...dialogProps.installation } : createEmptyInstallation(),
   );
 
   return (
-    <div className="dialog">
-      <h2 className="dialog-title">{editing ? "Edit Installation" : "New Installation"}</h2>
+    <div
+      className="dialog"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (versionDropdown.isOpen) versionDropdown.close();
+      }}
+    >
+      <h2 className="dialog-title">
+        {dialogType === "edit"
+          ? "Edit Installation"
+          : dialogType === "dupl"
+            ? "Duplicate Installation"
+            : "New Installation"}
+      </h2>
 
       <div className="dialog-fields">
         <div className="dialog-field">
@@ -248,8 +267,10 @@ export function InstallationDialog({
 
             // TODO: edit
 
-            if (!editing) {
-              const [install, err] = await handleCreateInstallation(editedInstall);
+            if (dialogType !== "edit") {
+              const [install, err] = await (dialogType === "new"
+                ? createInstallation(editedInstall)
+                : duplicateInstallation(dialogProps.original_id, editedInstall));
 
               if (!install) {
                 const res = mapInstallationError(err);
@@ -277,7 +298,7 @@ export function InstallationDialog({
             }
           }}
         >
-          {!editing ? "Install" : "Save"}
+          {dialogType === "new" ? "Install" : dialogType === "edit" ? "Save" : "Duplicate"}
         </button>
       </div>
     </div>

@@ -45,8 +45,9 @@ function App() {
     setOpenedDialog,
     launcherSettings,
     invokeCreateInstallation,
-    activeInstall,
     invokeDeleteInstallation,
+    invokeDuplicateInstallation,
+    activeInstall,
     setActiveInstall,
     setInstallations,
   } = useAppStateContext();
@@ -201,13 +202,13 @@ function App() {
 
   const dialogDragStartedInside = useRef(false);
 
-  const handleCreateInstallation = async (
+  const createInstallation = async (
     payload: Installation,
   ): Promise<[Installation, null] | [null, InstallationError]> => {
     try {
       const inst = await invokeCreateInstallation(payload);
       setInstallations((prev) => [...prev, inst]);
-      if (!activeInstall) setActiveInstall(inst);
+      setActiveInstall(inst);
       return [inst, null];
     } catch (e) {
       console.error("Failed to create installation", e);
@@ -223,13 +224,26 @@ function App() {
     }
   };
 
+  const duplicateInstallation = async (
+    install_id: string,
+    new_payload: Installation,
+  ): Promise<[Installation, null] | [null, InstallationError]> => {
+    try {
+      const inst = await invokeDuplicateInstallation(install_id, new_payload);
+      setInstallations((prev) => [...prev, inst]);
+      setActiveInstall(inst);
+      return [inst, null];
+    } catch (e) {
+      console.error("Failed to duplicate installation", e);
+      return [null, e as InstallationError];
+    }
+  };
+
   useEffect(() => {
     invoke<Installation[]>("load_installations")
       .then((installs) => {
         setInstallations(installs);
-        if (!activeInstall) {
-          setActiveInstall(installs[0]);
-        }
+        if (!activeInstall) setActiveInstall(installs[0]);
       })
       .catch((e) => console.error("Failed to load installations: ", e));
   }, [setInstallations, setActiveInstall, activeInstall]);
@@ -281,7 +295,8 @@ function App() {
           {openedDialog.name === "installation" && (
             <InstallationDialog
               {...openedDialog.props}
-              handleCreateInstallation={handleCreateInstallation}
+              createInstallation={createInstallation}
+              duplicateInstallation={duplicateInstallation}
             />
           )}
           {openedDialog.name === "confirm_dialog" && <ConfirmDialog {...openedDialog.props} />}

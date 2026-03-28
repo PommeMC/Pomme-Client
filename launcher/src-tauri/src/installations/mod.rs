@@ -176,7 +176,7 @@ impl TryFrom<String> for Directory {
             return Err(InstallationError::InvalidPath);
         }
         #[cfg(target_os = "windows")]
-        Self::validate_directory_os(&value)?;
+        Self::validate_directory_os(&path)?;
         Ok(Directory(path))
     }
 }
@@ -186,14 +186,23 @@ impl Directory {
     }
 
     #[cfg(target_os = "windows")]
-    pub fn validate_directory_os(path: &PathBuf) -> Result<(), InstallationError> {
+    pub fn validate_directory_os(path: &Path) -> Result<(), InstallationError> {
         for component in path.components() {
             if let std::path::Component::Normal(name) = component {
                 let name_str = name.to_string_lossy();
-                let stem = name_str.split('.').next().unwrap_or("").to_uppercase();
-                if RESERVED_DIRNAMES.contains(&stem.as_str()) {
+
+                let stem = name_str.split('.').next().unwrap_or("");
+                if RESERVED_DIRNAMES
+                    .iter()
+                    .any(|r| r.eq_ignore_ascii_case(stem))
+                {
                     return Err(InstallationError::ReservedName(name_str.into_owned()));
                 }
+
+                if name_str.ends_with(' ') || name_str.ends_with('.') {
+                    return Err(InstallationError::InvalidPath);
+                }
+
                 if let Some(c) = name_str.chars().find(|c| FORBIDDEN_CHAR.contains(c)) {
                     return Err(InstallationError::InvalidCharacter(c));
                 }
@@ -303,6 +312,10 @@ pub async fn load_installations() -> Result<Vec<Installation>, InstallationError
         fs::ensure_install_fs(install)?;
     }
 
+    if let Some(err) = registry::save(&installs).err() {
+        log::warn!("Failed to save registry after loading installations: {err}");
+    }
+
     Ok(installs)
 }
 
@@ -316,7 +329,7 @@ pub async fn create_installation(
     if let Err(e) = fs::ensure_install_fs(&install) {
         if let Err(rollback_err) = registry::unregister(&install.id) {
             log::warn!(
-                "Failed to roll back registry entry for `{:?}`: {}",
+                "Failed to roll back registry entry for failed `{:?}`: {}",
                 install.id,
                 rollback_err
             );
@@ -348,4 +361,36 @@ pub async fn delete_installation(id: String) -> Result<(), InstallationError> {
     }
 
     Ok(())
+}
+
+pub async fn duplicate_installation(
+    old_id: String,
+    payload: NewInstallPayload,
+) -> Result<Installation, InstallationError> {
+    let old_id: Id = old_id.into();
+    let old_install = registry::find_by_id(&old_id)?;
+    let new_install: Installation = payload.try_into()?;
+
+    registry::register(new_install.clone())?;
+
+    if let Err(e) = fs::duplicate_install_fs(&old_install.directory, &new_install.directory) {
+        if let Err(rollback_err) = registry::unregister(&new_install.id) {
+            log::warn!(
+                "Failed to roll back registry entry for failed `{:?}`: {}",
+                new_install.id,
+                rollback_err
+            );
+        }
+        return Err(e);
+    }
+
+    if let Err(e) = fs::ensure_install_fs(&new_install) {
+        log::warn!(
+            "Failed to ensure fs for duplicated installation `{:?}`: {}",
+            new_install.id,
+            e
+        );
+    }
+
+    Ok(new_install)
 }

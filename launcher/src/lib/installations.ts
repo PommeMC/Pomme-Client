@@ -1,6 +1,6 @@
+import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
 import { Installation } from "./types.ts";
-import { invoke } from "@tauri-apps/api/core";
 
 export const useInstallations = () => {
   const [installations, setInstallations] = useState<Installation[]>([]);
@@ -15,11 +15,22 @@ export const useInstallations = () => {
     return invoke("delete_installation", { id });
   };
 
+  const invokeDuplicateInstallation = async (
+    original_id: string,
+    install: Installation,
+  ): Promise<Installation> => {
+    return invoke<Installation>("duplicate_installation", {
+      oldId: original_id,
+      payload: install,
+    });
+  };
+
   return {
     installations,
     setInstallations,
     invokeCreateInstallation,
     invokeDeleteInstallation,
+    invokeDuplicateInstallation,
     activeInstall,
     setActiveInstall,
     selectedInstall,
