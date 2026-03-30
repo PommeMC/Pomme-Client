@@ -15,6 +15,7 @@ use net::connection::ConnectArgs;
 use std::sync::Arc;
 
 const SUPPORTED_VERSIONS: &[&str] = &["26.1"];
+const _: () = assert!(!SUPPORTED_VERSIONS.is_empty());
 
 fn main() {
     env_logger::init();
@@ -39,17 +40,22 @@ fn main() {
         }
     }
 
-    if !SUPPORTED_VERSIONS.contains(&args.version.as_str()) {
+    let version = args
+        .version
+        .as_deref()
+        .unwrap_or_else(|| SUPPORTED_VERSIONS.first().unwrap());
+
+    if !SUPPORTED_VERSIONS.contains(&version) {
         log::error!(
             "{} is not currently supported. Supported versions: {:?}",
-            args.version,
+            version,
             SUPPORTED_VERSIONS
         );
         std::process::exit(1);
     }
 
     let data_dirs = dirs::DataDirs::resolve(
-        &args.version,
+        version,
         args.assets_dir.as_deref(),
         args.versions_dir.as_deref(),
         args.game_dir.as_deref(),
@@ -94,7 +100,7 @@ fn main() {
         _ => None,
     };
 
-    if let Err(e) = window::run(connection, args.version, data_dirs, rt, launch_auth) {
+    if let Err(e) = window::run(connection, version.to_owned(), data_dirs, rt, launch_auth) {
         log::error!("Fatal: {e}");
         std::process::exit(1);
     }
