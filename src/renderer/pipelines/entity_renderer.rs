@@ -119,7 +119,7 @@ impl EntityRenderer {
         command_pool: vk::CommandPool,
         render_pass: vk::RenderPass,
         allocator: &Arc<Mutex<Allocator>>,
-        assets_dir: &Path,
+        jar_assets_dir: &Path,
         asset_index: &Option<AssetIndex>,
     ) -> Self {
         let camera_layout = util::create_descriptor_set_layout(
@@ -218,7 +218,7 @@ impl EntityRenderer {
                 descriptor_pool,
                 texture_layout,
                 texture_sampler,
-                assets_dir,
+                jar_assets_dir,
                 asset_index,
                 def.adult_model,
                 def.adult_tex_keys,
@@ -234,7 +234,7 @@ impl EntityRenderer {
                     descriptor_pool,
                     texture_layout,
                     texture_sampler,
-                    assets_dir,
+                    jar_assets_dir,
                     asset_index,
                     model,
                     keys,
@@ -417,7 +417,7 @@ fn create_mob_variant(
     descriptor_pool: vk::DescriptorPool,
     texture_layout: vk::DescriptorSetLayout,
     texture_sampler: vk::Sampler,
-    assets_dir: &Path,
+    jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
     model: BakedEntityModel,
     tex_keys: &[&str],
@@ -437,7 +437,7 @@ fn create_mob_variant(
         queue,
         command_pool,
         allocator,
-        assets_dir,
+        jar_assets_dir,
         asset_index,
         tex_keys,
         fallback_tex_size,
@@ -479,7 +479,7 @@ fn load_entity_texture(
     queue: vk::Queue,
     command_pool: vk::CommandPool,
     allocator: &Arc<Mutex<Allocator>>,
-    assets_dir: &Path,
+    jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
     asset_keys: &[&str],
     fallback_size: u32,
@@ -487,7 +487,7 @@ fn load_entity_texture(
     let (pixels, width, height) = asset_keys
         .iter()
         .find_map(|key| {
-            let path = resolve_asset_path(assets_dir, asset_index, key);
+            let path = resolve_asset_path(jar_assets_dir, asset_index, key);
             util::load_png(&path)
         })
         .unwrap_or_else(|| {

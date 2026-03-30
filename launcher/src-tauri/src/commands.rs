@@ -250,16 +250,14 @@ pub async fn ensure_assets(app: tauri::AppHandle, version: String) -> Result<(),
 #[tauri::command]
 pub async fn launch_game(
     app: AppHandle,
+    version: String,
     uuid: Option<String>,
     server: Option<String>,
     debug_enabled: Option<bool>,
-    version: Option<String>,
+    install_path: Option<String>,
 ) -> Result<String, String> {
     let exe = find_client_binary()?;
-    let assets = storage::assets_dir();
-
     let account = uuid.as_deref().and_then(crate::auth::try_restore);
-
     let username = account
         .as_ref()
         .map(|a| a.username.clone())
@@ -268,17 +266,15 @@ pub async fn launch_game(
     let token: String = (0..32)
         .map(|_| format!("{:02x}", rand::random::<u8>()))
         .collect();
-    let token_path = std::env::temp_dir().join("pomc_launch_token");
+    let token_path = std::env::temp_dir().join("launch_token");
     std::fs::write(&token_path, &token).map_err(|e| e.to_string())?;
 
     let mut cmd = tokio::process::Command::new(&exe);
-
     cmd.stderr(Stdio::piped());
 
     if debug_enabled.unwrap_or(false) {
         cmd.env("RUST_LOG", "debug");
         cmd.env("RUST_BACKTRACE", "full");
-
         match app.webview_windows().get("console") {
             None => {
                 WebviewWindowBuilder::new(&app, "console", WebviewUrl::App("console".into()))
@@ -297,42 +293,47 @@ pub async fn launch_game(
                         },
                     )
                     .map_err(|e| e.to_string());
-
                 window.set_focus().expect("failed to focus window");
             }
         }
     }
 
-    cmd.arg("--username")
+    cmd.arg("--version")
+        .arg(&version)
+        .arg("--username")
         .arg(&username)
         .arg("--assets-dir")
-        .arg(assets.to_string_lossy().as_ref())
+        .arg(storage::assets_dir().to_string_lossy().as_ref())
+        .arg("--versions-dir")
+        .arg(storage::versions_dir().to_string_lossy().as_ref())
         .arg("--launch-token")
-        .arg(token_path.to_string_lossy().as_ref());
+        .arg(token_path.to_string_lossy().as_ref())
+        .arg("--game-dir")
+        .arg(install_path.unwrap_or_else(|| {
+            storage::installations_dir()
+                .join("default")
+                .to_string_lossy()
+                .into_owned()
+        }));
 
     if let Some(acc) = &account {
-        cmd.arg("--uuid").arg(&acc.uuid);
-        cmd.arg("--access-token").arg(&acc.access_token);
+        cmd.arg("--uuid")
+            .arg(&acc.uuid)
+            .arg("--access-token")
+            .arg(&acc.access_token);
     }
-
     if let Some(server) = &server {
-        cmd.arg("--server").arg(server);
-    }
-
-    if let Some(ver) = &version {
-        cmd.arg("--version").arg(ver);
+        cmd.arg("--quick-access-server").arg(server);
     }
 
     #[cfg(unix)]
     cmd.process_group(0);
 
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-
     let stderr = child
         .stderr
         .take()
         .expect("couldn't take stderr from game process");
-
     let mut reader = BufReader::new(stderr).lines();
 
     tokio::spawn(async move {
@@ -340,12 +341,10 @@ pub async fn launch_game(
             .wait()
             .await
             .expect("client process encountered an error");
-
         println!("client status was: {}", status);
     });
 
     let app_handle = app.clone();
-
     tokio::spawn(async move {
         loop {
             match reader.next_line().await {
@@ -359,12 +358,9 @@ pub async fn launch_game(
                             },
                         )
                         .map_err(|e| e.to_string());
-
                     let state = app_handle.state::<Mutex<crate::AppState>>();
                     let mut state = state.lock().await;
-
                     state.client_logs.push_back(line);
-
                     if state.client_logs.len() > 10_000 {
                         state.client_logs.pop_front();
                     }
@@ -466,8 +462,7 @@ pub async fn save_servers(servers: Vec<crate::ping::SavedServer>) -> Result<(), 
 }
 
 fn servers_path() -> std::path::PathBuf {
-    storage::data_dir()
-        .join("instances")
+    storage::installations_dir()
         .join("default")
-        .join("pomc_servers.json")
+        .join("servers.json")
 }

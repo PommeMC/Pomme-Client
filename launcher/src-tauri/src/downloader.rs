@@ -65,11 +65,8 @@ pub fn needs_download(version: &str) -> bool {
     let no_index = !storage::indexes_dir()
         .join(format!("{version}.json"))
         .exists();
-    let marker = storage::assets_dir().join("jar").join(".extracted");
-    let wrong_version = std::fs::read_to_string(&marker)
-        .map(|v| v.trim() != version)
-        .unwrap_or(true);
-    no_index || wrong_version
+    let not_extracted = !storage::version_extracted_marker(version).exists();
+    no_index || not_extracted
 }
 
 pub async fn download(app: &AppHandle, version: &str) -> Result<(), String> {
@@ -218,16 +215,14 @@ async fn download_jar(
     version: &str,
     cached_vj: Option<&VersionJson>,
 ) -> Result<(), String> {
+    let jar_assets = storage::version_extracted_dir(version);
+    let marker = storage::version_extracted_marker(version);
+    if marker.exists() {
+        return Ok(());
+    }
+
     let ver_dir = storage::version_dir(version);
     let _ = std::fs::create_dir_all(&ver_dir);
-    let jar_assets = storage::assets_dir().join("jar");
-    let marker = jar_assets.join(".extracted");
-    if marker.exists() {
-        let extracted_ver = std::fs::read_to_string(&marker).unwrap_or_default();
-        if extracted_ver.trim() == version {
-            return Ok(());
-        }
-    }
 
     let fetched;
     let dl = if let Some(vj) = cached_vj {

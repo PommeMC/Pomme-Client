@@ -64,14 +64,14 @@ pub struct BlockRegistry {
 }
 
 impl BlockRegistry {
-    pub fn load(assets_dir: &Path, asset_index: &Option<AssetIndex>, game_dir: &Path) -> Self {
-        let cache_path = game_dir.join("pomc_block_cache.json");
+    pub fn load(jar_assets_dir: &Path, asset_index: &Option<AssetIndex>, game_dir: &Path) -> Self {
+        let cache_path = game_dir.join("block_cache.json");
 
         let textures = if let Some(cached) = load_cache(&cache_path) {
             log::info!("Block registry: {} blocks (cached textures)", cached.len());
             cached
         } else {
-            let mut textures = model::load_all_block_textures(assets_dir, asset_index);
+            let mut textures = model::load_all_block_textures(jar_assets_dir, asset_index);
 
             textures
                 .entry("water".into())
@@ -88,7 +88,7 @@ impl BlockRegistry {
             textures
         };
 
-        let (baked, multipart) = model::bake_all_models(assets_dir, asset_index);
+        let (baked, multipart) = model::bake_all_models(jar_assets_dir, asset_index);
 
         Self {
             textures,

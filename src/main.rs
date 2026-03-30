@@ -1,6 +1,6 @@
 mod args;
 mod assets;
-mod data;
+mod dirs;
 mod entity;
 mod net;
 mod physics;
@@ -10,11 +10,11 @@ mod ui;
 mod window;
 mod world;
 
+use clap::Parser;
+use net::connection::ConnectArgs;
 use std::sync::Arc;
 
-use clap::Parser;
-
-use net::connection::ConnectArgs;
+const SUPPORTED_VERSIONS: &[&str] = &["26.1"];
 
 fn main() {
     env_logger::init();
@@ -39,18 +39,33 @@ fn main() {
         }
     }
 
-    let data = data::DataDir::resolve(args.game_dir.as_deref(), args.assets_dir.as_deref());
-
-    if let Err(e) = data.ensure_dirs() {
-        log::error!("Failed to create data directories: {e}");
+    if !SUPPORTED_VERSIONS.contains(&args.version.as_str()) {
+        log::error!(
+            "{} is not currently supported. Supported versions: {:?}",
+            args.version,
+            SUPPORTED_VERSIONS
+        );
         std::process::exit(1);
     }
 
-    log::info!("Data directory: {}", data.root.display());
+    let data_dirs = dirs::DataDirs::resolve(
+        &args.version,
+        args.assets_dir.as_deref(),
+        args.versions_dir.as_deref(),
+        args.game_dir.as_deref(),
+    );
 
-    let rt = Arc::new(tokio::runtime::Runtime::new().expect("failed to create tokio runtime"));
+    if let Err(e) = data_dirs.verify() {
+        log::error!("Failed to verify directories: {e}");
+        std::process::exit(1);
+    }
+    data_dirs.ensure_game_dir().ok();
 
-    let connection = if let Some(ref server) = args.server {
+    log::info!("Installation directory: {}", data_dirs.game_dir.display());
+
+    let rt = Arc::new(tokio::runtime::Runtime::new().expect("Failed to create tokio runtime"));
+
+    let connection = if let Some(ref server) = args.quick_access_server {
         let connect_args = ConnectArgs {
             server: server.clone(),
             username: args.username.clone().unwrap_or_else(|| "Steve".into()),
@@ -79,13 +94,7 @@ fn main() {
         _ => None,
     };
 
-    if let Err(e) = window::run(
-        connection,
-        data.assets_dir.clone(),
-        data.instance_dir.clone(),
-        rt,
-        launch_auth,
-    ) {
+    if let Err(e) = window::run(connection, args.version, data_dirs, rt, launch_auth) {
         log::error!("Fatal: {e}");
         std::process::exit(1);
     }

@@ -37,7 +37,7 @@ impl PanoramaPipeline {
         command_pool: vk::CommandPool,
         render_pass: vk::RenderPass,
         allocator: &Arc<Mutex<Allocator>>,
-        assets_dir: &std::path::Path,
+        jar_assets_dir: &std::path::Path,
         asset_index: &Option<AssetIndex>,
     ) -> Self {
         let params_layout = util::create_descriptor_set_layout(
@@ -116,7 +116,7 @@ impl PanoramaPipeline {
             queue,
             command_pool,
             allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
         );
 
@@ -192,7 +192,7 @@ impl PanoramaPipeline {
         queue: vk::Queue,
         command_pool: vk::CommandPool,
         allocator: &Arc<Mutex<Allocator>>,
-        assets_dir: &std::path::Path,
+        jar_assets_dir: &std::path::Path,
         asset_index: &Option<AssetIndex>,
     ) {
         unsafe {
@@ -234,7 +234,7 @@ impl PanoramaPipeline {
             queue,
             command_pool,
             allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
         );
 
@@ -300,15 +300,15 @@ impl PanoramaPipeline {
 
 fn resolve_panorama_face(
     i: u32,
-    assets_dir: &std::path::Path,
+    jar_assets_dir: &std::path::Path,
     asset_index: &Option<AssetIndex>,
 ) -> Option<std::path::PathBuf> {
-    let flat = assets_dir.join(format!("panorama_{i}.png"));
+    let flat = jar_assets_dir.join(format!("panorama_{i}.png"));
     if flat.exists() {
         return Some(flat);
     }
     let asset_key = format!("minecraft/textures/gui/title/background/panorama_{i}.png");
-    let path = resolve_asset_path(assets_dir, asset_index, &asset_key);
+    let path = resolve_asset_path(jar_assets_dir, asset_index, &asset_key);
     path.exists().then_some(path)
 }
 
@@ -330,7 +330,7 @@ fn load_cubemap(
     queue: vk::Queue,
     command_pool: vk::CommandPool,
     allocator: &Arc<Mutex<Allocator>>,
-    assets_dir: &std::path::Path,
+    jar_assets_dir: &std::path::Path,
     asset_index: &Option<AssetIndex>,
 ) -> (
     vk::Image,
@@ -346,7 +346,7 @@ fn load_cubemap(
     let mut face_h = 0u32;
 
     for i in 0..6 {
-        let path = match resolve_panorama_face(i, assets_dir, asset_index) {
+        let path = match resolve_panorama_face(i, jar_assets_dir, asset_index) {
             Some(p) => p,
             None => {
                 log::info!("Panorama face {i} not found, skipping cubemap");

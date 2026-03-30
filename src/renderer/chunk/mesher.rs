@@ -72,11 +72,11 @@ pub struct Colormap {
 
 impl Colormap {
     pub fn load(
-        assets_dir: &std::path::Path,
+        jar_assets_dir: &std::path::Path,
         asset_index: &Option<crate::assets::AssetIndex>,
         colormap_path: &str,
     ) -> Self {
-        let path = crate::assets::resolve_asset_path(assets_dir, asset_index, colormap_path);
+        let path = crate::assets::resolve_asset_path(jar_assets_dir, asset_index, colormap_path);
         let pixels = crate::renderer::util::load_png(&path)
             .map(|(data, _w, _h)| {
                 data.chunks(4)

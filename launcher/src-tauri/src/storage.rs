@@ -21,6 +21,7 @@ fn ensure_file(path: &Path, default: &str) {
 
 pub fn ensure_dirs() {
     let _ = std::fs::create_dir_all(assets_dir());
+    let _ = std::fs::create_dir_all(pomc_assets_dir());
     let _ = std::fs::create_dir_all(versions_dir());
     let _ = std::fs::create_dir_all(installations_dir());
 
@@ -35,6 +36,17 @@ pub fn ensure_dirs() {
 pub fn assets_dir() -> PathBuf {
     data_dir().join("assets")
 }
+pub fn indexes_dir() -> PathBuf {
+    assets_dir().join("indexes")
+}
+pub fn objects_dir() -> PathBuf {
+    assets_dir().join("objects")
+}
+
+pub fn pomc_assets_dir() -> PathBuf {
+    data_dir().join("pomc_assets")
+}
+
 pub fn versions_dir() -> PathBuf {
     data_dir().join("versions")
 }
@@ -44,15 +56,15 @@ pub fn version_dir(version: &str) -> PathBuf {
 pub fn version_jar(version: &str) -> PathBuf {
     version_dir(version).join(format!("{version}.jar"))
 }
-pub fn installations_dir() -> PathBuf {
-    data_dir().join("installations")
+pub fn version_extracted_dir(version: &str) -> PathBuf {
+    version_dir(version).join("extracted")
+}
+pub fn version_extracted_marker(version: &str) -> PathBuf {
+    version_extracted_dir(version).join(".extracted")
 }
 
-pub fn indexes_dir() -> PathBuf {
-    assets_dir().join("indexes")
-}
-pub fn objects_dir() -> PathBuf {
-    assets_dir().join("objects")
+pub fn installations_dir() -> PathBuf {
+    data_dir().join("installations")
 }
 
 pub fn settings_file() -> PathBuf {

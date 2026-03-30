@@ -177,7 +177,7 @@ impl MenuOverlayPipeline {
         command_pool: vk::CommandPool,
         render_pass: vk::RenderPass,
         allocator: &Arc<Mutex<Allocator>>,
-        assets_dir: &Path,
+        jar_assets_dir: &Path,
         asset_index: &Option<AssetIndex>,
     ) -> Self {
         let atlas = build_font_atlas();
@@ -317,7 +317,7 @@ impl MenuOverlayPipeline {
             queue,
             command_pool,
             allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
         );
 
@@ -335,13 +335,13 @@ impl MenuOverlayPipeline {
             queue,
             command_pool,
             allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
         );
 
         let item_sampler = unsafe { util::create_nearest_sampler(device) };
 
-        let mc_glyph_map = GlyphMap::load(assets_dir, asset_index);
+        let mc_glyph_map = GlyphMap::load(jar_assets_dir, asset_index);
         let (
             mc_font_image,
             mc_font_view,
@@ -1138,7 +1138,7 @@ fn build_sprite_atlas(
     queue: vk::Queue,
     command_pool: vk::CommandPool,
     allocator: &Arc<Mutex<Allocator>>,
-    assets_dir: &Path,
+    jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
 ) -> (
     SpriteAtlas,
@@ -1288,7 +1288,7 @@ fn build_sprite_atlas(
 
     let mut images: Vec<(SpriteId, Vec<u8>, u32, u32, f32)> = Vec::new();
     for &(id, asset_key, border) in sprites {
-        let path = resolve_asset_path(assets_dir, asset_index, asset_key);
+        let path = resolve_asset_path(jar_assets_dir, asset_index, asset_key);
         match crate::assets::load_image(&path) {
             Ok(img) => {
                 let rgba = img.to_rgba8();
@@ -1304,7 +1304,7 @@ fn build_sprite_atlas(
     }
 
     let inv_path = resolve_asset_path(
-        assets_dir,
+        jar_assets_dir,
         asset_index,
         "minecraft/textures/gui/container/inventory.png",
     );
@@ -1416,7 +1416,7 @@ fn build_item_atlas(
     queue: vk::Queue,
     command_pool: vk::CommandPool,
     allocator: &Arc<Mutex<Allocator>>,
-    assets_dir: &Path,
+    jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
 ) -> (
     ItemAtlas,
@@ -1430,11 +1430,15 @@ fn build_item_atlas(
     let mut regions = HashMap::new();
     let mut slot = 0u32;
 
-    let item_dir = resolve_asset_path(assets_dir, asset_index, "minecraft/textures/item/dummy.png");
+    let item_dir = resolve_asset_path(
+        jar_assets_dir,
+        asset_index,
+        "minecraft/textures/item/dummy.png",
+    );
     let item_parent = item_dir.parent().unwrap_or(Path::new("."));
 
     let block_dir = resolve_asset_path(
-        assets_dir,
+        jar_assets_dir,
         asset_index,
         "minecraft/textures/block/dummy.png",
     );

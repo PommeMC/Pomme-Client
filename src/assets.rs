@@ -9,18 +9,14 @@ pub fn load_image(path: &Path) -> Result<image::DynamicImage, image::ImageError>
 }
 
 pub fn resolve_asset_path(
-    assets_dir: &Path,
+    jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
     asset_key: &str,
 ) -> PathBuf {
     if let Some(path) = asset_index.as_ref().and_then(|idx| idx.resolve(asset_key)) {
         return path;
     }
-    let jar_path = assets_dir.join("jar").join("assets").join(asset_key);
-    if jar_path.exists() {
-        return jar_path;
-    }
-    assets_dir.join("assets").join(asset_key)
+    jar_assets_dir.join(asset_key)
 }
 
 #[derive(Clone)]
@@ -30,8 +26,8 @@ pub struct AssetIndex {
 }
 
 impl AssetIndex {
-    pub fn load(assets_dir: &Path) -> Option<Self> {
-        let index_path = find_latest_asset_index(assets_dir)?;
+    pub fn load(indexes_dir: &Path, objects_dir: &Path, version: &str) -> Option<Self> {
+        let index_path = indexes_dir.join(format!("{version}.json"));
 
         let content = std::fs::read_to_string(&index_path)
             .map_err(|e| log::warn!("Failed to read asset index: {e}"))
@@ -50,7 +46,7 @@ impl AssetIndex {
             .collect();
 
         Some(Self {
-            objects_dir: assets_dir.join("objects"),
+            objects_dir: objects_dir.to_path_buf(),
             hashes,
         })
     }
@@ -60,22 +56,4 @@ impl AssetIndex {
         let path = self.objects_dir.join(&hash[..2]).join(hash);
         path.exists().then_some(path)
     }
-}
-
-fn find_latest_asset_index(assets_dir: &Path) -> Option<PathBuf> {
-    let indexes_dir = assets_dir.join("indexes");
-
-    let entries = std::fs::read_dir(&indexes_dir)
-        .map_err(|e| log::warn!("Failed to read asset indexes dir: {e}"))
-        .ok()?;
-
-    entries
-        .flatten()
-        .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
-        .max_by_key(|e| {
-            e.metadata()
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-        })
-        .map(|e| e.path())
 }

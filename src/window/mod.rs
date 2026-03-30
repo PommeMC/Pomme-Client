@@ -1,9 +1,9 @@
 pub mod input;
 
-use std::path::PathBuf;
+use azalea_protocol::packets::game::ServerboundGamePacket;
+use input::InputState;
 use std::sync::Arc;
 use std::time::Instant;
-
 use thiserror::Error;
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, DeviceId, WindowEvent};
@@ -11,6 +11,8 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{CursorGrabMode, Window, WindowId};
 
+use crate::assets::AssetIndex;
+use crate::dirs::DataDirs;
 use crate::entity::EntityStore;
 use crate::net::NetworkEvent;
 use crate::physics::movement;
@@ -26,8 +28,6 @@ use crate::ui::hud;
 use crate::ui::menu::{MainMenu, MenuAction, MenuInput, PanoramaTheme};
 use crate::ui::pause::{self, PauseAction};
 use crate::world::chunk::ChunkStore;
-use azalea_protocol::packets::game::ServerboundGamePacket;
-use input::InputState;
 
 #[derive(Error, Debug)]
 pub enum WindowError {
@@ -92,9 +92,8 @@ struct App {
     packet_sender: Option<crate::net::sender::PacketSender>,
     chunk_store: ChunkStore,
     entity_store: EntityStore,
-    assets_dir: PathBuf,
-    game_dir: PathBuf,
-    asset_index: Option<crate::assets::AssetIndex>,
+    data_dirs: DataDirs,
+    asset_index: Option<AssetIndex>,
     position_set: bool,
     state: GameState,
     menu: MainMenu,
@@ -102,9 +101,8 @@ struct App {
     player: LocalPlayer,
     tick_accumulator: f32,
     prev_player_pos: glam::Vec3,
-    biome_climate: std::sync::Arc<
-        std::collections::HashMap<u32, crate::renderer::chunk::mesher::BiomeClimate>,
-    >,
+    biome_climate:
+        Arc<std::collections::HashMap<u32, crate::renderer::chunk::mesher::BiomeClimate>>,
     mesh_dispatcher: Option<MeshDispatcher>,
     paused: bool,
     inventory_open: bool,
@@ -159,8 +157,8 @@ impl FpsCounter {
 impl App {
     fn new(
         connection: Option<crate::net::connection::ConnectionHandle>,
-        assets_dir: std::path::PathBuf,
-        game_dir: std::path::PathBuf,
+        version: String,
+        data_dirs: DataDirs,
         tokio_rt: Arc<tokio::runtime::Runtime>,
     ) -> Self {
         let (net_events, chat_sender, packet_sender) = match connection {
@@ -188,13 +186,12 @@ impl App {
             packet_sender,
             chunk_store: ChunkStore::new(DEFAULT_RENDER_DISTANCE),
             entity_store: EntityStore::new(),
-            asset_index: crate::assets::AssetIndex::load(&assets_dir),
-            assets_dir,
-            game_dir: game_dir.clone(),
+            asset_index: AssetIndex::load(&data_dirs.indexes_dir, &data_dirs.objects_dir, &version),
             position_set: false,
             state,
-            menu: MainMenu::new(&game_dir, Arc::clone(&tokio_rt)),
+            menu: MainMenu::new(&data_dirs.game_dir, Arc::clone(&tokio_rt)),
             tokio_rt,
+            data_dirs,
             options_from_game: false,
             last_render_distance: DEFAULT_RENDER_DISTANCE,
             server_render_distance: 0,
@@ -203,7 +200,7 @@ impl App {
             player: LocalPlayer::new(),
             tick_accumulator: 0.0,
             prev_player_pos: glam::Vec3::ZERO,
-            biome_climate: std::sync::Arc::new(std::collections::HashMap::new()),
+            biome_climate: Arc::new(std::collections::HashMap::new()),
             mesh_dispatcher: None,
             paused: false,
             inventory_open: false,
@@ -367,7 +364,7 @@ impl App {
                 }
                 NetworkEvent::BiomeColors { colors } => {
                     log::info!("Received {} biome climate entries", colors.len());
-                    self.biome_climate = std::sync::Arc::new(colors);
+                    self.biome_climate = Arc::new(colors);
                     if let Some(dispatcher) = &mut self.mesh_dispatcher {
                         dispatcher.set_biome_climate(self.biome_climate.clone());
                     }
@@ -712,7 +709,7 @@ impl App {
 
         if pos_changed && rot_changed {
             sender.send(ServerboundGamePacket::MovePlayerPosRot(
-                s_move_player_pos_rot::ServerboundMovePlayerPosRot {
+                ServerboundMovePlayerPosRot {
                     pos: net_pos,
                     look_direction: look,
                     flags,
@@ -720,14 +717,14 @@ impl App {
             ));
         } else if pos_changed {
             sender.send(ServerboundGamePacket::MovePlayerPos(
-                s_move_player_pos::ServerboundMovePlayerPos {
+                ServerboundMovePlayerPos {
                     pos: net_pos,
                     flags,
                 },
             ));
         } else if rot_changed {
             sender.send(ServerboundGamePacket::MovePlayerRot(
-                s_move_player_rot::ServerboundMovePlayerRot {
+                ServerboundMovePlayerRot {
                     look_direction: look,
                     flags,
                 },
@@ -736,7 +733,7 @@ impl App {
             || self.player.horizontal_collision != self.last_sent_horizontal_collision
         {
             sender.send(ServerboundGamePacket::MovePlayerStatusOnly(
-                s_move_player_status_only::ServerboundMovePlayerStatusOnly { flags },
+                ServerboundMovePlayerStatusOnly { flags },
             ));
         }
 
@@ -775,9 +772,9 @@ impl ApplicationHandler for App {
 
         let mut renderer = match Renderer::new(
             Arc::clone(&window),
-            &self.assets_dir,
+            &self.data_dirs.jar_assets_dir,
             &self.asset_index,
-            &self.game_dir,
+            &self.data_dirs.game_dir,
         ) {
             Ok(r) => r,
             Err(e) => {
@@ -995,9 +992,11 @@ impl ApplicationHandler for App {
                                     MenuAction::ChangeTheme(theme) => {
                                         if let Some(renderer) = &mut self.renderer {
                                             let panorama_dir = match theme {
-                                                PanoramaTheme::Default => self.assets_dir.clone(),
+                                                PanoramaTheme::Default => {
+                                                    self.data_dirs.jar_assets_dir.clone()
+                                                }
                                                 PanoramaTheme::Pomc => {
-                                                    self.game_dir.join("pomc_panorama")
+                                                    self.data_dirs.pomc_assets_dir.join("panoramas")
                                                 }
                                             };
                                             renderer
@@ -1404,10 +1403,6 @@ impl ApplicationHandler for App {
         }
     }
 
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
-    }
-
     fn device_event(
         &mut self,
         _event_loop: &ActiveEventLoop,
@@ -1422,6 +1417,10 @@ impl ApplicationHandler for App {
         {
             self.input.on_mouse_motion(delta);
         }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
     }
 }
 
@@ -1462,13 +1461,13 @@ fn chunk_lod(pos: azalea_core::position::ChunkPos, player: azalea_core::position
 
 pub fn run(
     connection: Option<crate::net::connection::ConnectionHandle>,
-    assets_dir: std::path::PathBuf,
-    game_dir: std::path::PathBuf,
+    version: String,
+    data_dirs: DataDirs,
     tokio_rt: Arc<tokio::runtime::Runtime>,
     auth: Option<LaunchAuth>,
 ) -> Result<(), WindowError> {
     let event_loop = EventLoop::new()?;
-    let mut app = App::new(connection, assets_dir, game_dir, tokio_rt);
+    let mut app = App::new(connection, version, data_dirs, tokio_rt);
     if let Some(auth) = auth {
         app.pending_skin_uuid = Some(auth.uuid);
         app.menu

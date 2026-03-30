@@ -160,7 +160,7 @@ impl SkyPipeline {
         command_pool: vk::CommandPool,
         render_pass: vk::RenderPass,
         allocator: &Arc<Mutex<Allocator>>,
-        assets_dir: &Path,
+        jar_assets_dir: &Path,
         asset_index: &Option<AssetIndex>,
     ) -> Self {
         let ubo_layout = util::create_descriptor_set_layout(
@@ -250,7 +250,7 @@ impl SkyPipeline {
             queue,
             command_pool,
             allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
             "minecraft/textures/environment/sun.png",
         );
@@ -262,7 +262,7 @@ impl SkyPipeline {
             queue,
             command_pool,
             allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
             "minecraft/textures/environment/moon_phases.png",
         );
@@ -785,11 +785,11 @@ fn load_celestial_texture(
     queue: vk::Queue,
     command_pool: vk::CommandPool,
     allocator: &Arc<Mutex<Allocator>>,
-    assets_dir: &Path,
+    jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
     key: &str,
 ) -> (vk::Image, vk::ImageView, Allocation) {
-    let path = resolve_asset_path(assets_dir, asset_index, key);
+    let path = resolve_asset_path(jar_assets_dir, asset_index, key);
     let (pixels, w, h) = util::load_png(&path).unwrap_or_else(|| {
         log::warn!("Failed to load {key}, using fallback");
         (vec![255u8; 16 * 16 * 4], 16, 16)

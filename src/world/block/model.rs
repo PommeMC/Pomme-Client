@@ -222,15 +222,20 @@ const GRASS_TINTED: &[&str] = &[
 ];
 
 pub fn load_all_block_textures(
-    assets_dir: &Path,
+    jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
 ) -> HashMap<String, FaceTextures> {
     let mut results = HashMap::new();
     let mut model_cache = HashMap::new();
 
-    for_each_blockstate(assets_dir, asset_index, |block_name, blockstate| {
+    for_each_blockstate(jar_assets_dir, |block_name, blockstate| {
         let model_ref = extract_default_model_ref(blockstate)?;
-        let resolved = resolve_model(&model_ref.model, assets_dir, asset_index, &mut model_cache);
+        let resolved = resolve_model(
+            &model_ref.model,
+            jar_assets_dir,
+            asset_index,
+            &mut model_cache,
+        );
         let face_textures = build_face_textures(block_name, &resolved.textures)?;
         results.insert(block_name.to_string(), face_textures);
         Some(())
@@ -247,7 +252,7 @@ type BakedModelMap = HashMap<String, HashMap<String, BakedModel>>;
 type MultipartMap = HashMap<String, Vec<MultipartEntry>>;
 
 pub fn bake_all_models(
-    assets_dir: &Path,
+    jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
 ) -> (BakedModelMap, MultipartMap) {
     let mut results: HashMap<String, HashMap<String, BakedModel>> = HashMap::new();
@@ -255,7 +260,7 @@ pub fn bake_all_models(
     let mut model_cache = HashMap::new();
     let mut total = 0u32;
 
-    for_each_blockstate(assets_dir, asset_index, |block_name, blockstate| {
+    for_each_blockstate(jar_assets_dir, |block_name, blockstate| {
         total += 1;
         let block_tint = determine_tint(block_name);
         let mut variants_map: HashMap<String, BakedModel> = HashMap::new();
@@ -263,8 +268,12 @@ pub fn bake_all_models(
         if let Some(variants) = &blockstate.variants {
             for (variant_key, variant_entry) in variants {
                 let model_ref = variant_entry.first()?;
-                let resolved =
-                    resolve_model(&model_ref.model, assets_dir, asset_index, &mut model_cache);
+                let resolved = resolve_model(
+                    &model_ref.model,
+                    jar_assets_dir,
+                    asset_index,
+                    &mut model_cache,
+                );
                 if let Some(baked) =
                     bake_resolved_model(&resolved, model_ref.x, model_ref.y, block_tint)
                 {
@@ -275,8 +284,12 @@ pub fn bake_all_models(
             let mut entries = Vec::new();
             for case in multipart {
                 let model_ref = case.apply.first()?;
-                let resolved =
-                    resolve_model(&model_ref.model, assets_dir, asset_index, &mut model_cache);
+                let resolved = resolve_model(
+                    &model_ref.model,
+                    jar_assets_dir,
+                    asset_index,
+                    &mut model_cache,
+                );
                 if let Some(baked) =
                     bake_resolved_model(&resolved, model_ref.x, model_ref.y, block_tint)
                 {
@@ -299,7 +312,7 @@ pub fn bake_all_models(
     });
 
     let mut missing_names: Vec<String> = Vec::new();
-    for_each_blockstate(assets_dir, asset_index, |block_name, _| {
+    for_each_blockstate(jar_assets_dir, |block_name, _| {
         if !results.contains_key(block_name) && !multipart_results.contains_key(block_name) {
             missing_names.push(block_name.to_string());
         }
@@ -334,11 +347,10 @@ fn parse_when_condition(when: &Option<serde_json::Value>) -> HashMap<String, Str
 }
 
 fn for_each_blockstate(
-    assets_dir: &Path,
-    asset_index: &Option<AssetIndex>,
+    jar_assets_dir: &Path,
     mut callback: impl FnMut(&str, &BlockstateFile) -> Option<()>,
 ) {
-    let Some(blockstates_dir) = resolve_blockstates_dir(assets_dir, asset_index) else {
+    let Some(blockstates_dir) = resolve_blockstates_dir(jar_assets_dir) else {
         log::warn!("Blockstates directory not found");
         return;
     };
@@ -371,28 +383,9 @@ fn for_each_blockstate(
     }
 }
 
-fn resolve_blockstates_dir(assets_dir: &Path, asset_index: &Option<AssetIndex>) -> Option<PathBuf> {
-    let candidates = [
-        assets_dir.join("assets/minecraft/blockstates"),
-        assets_dir.join("jar/assets/minecraft/blockstates"),
-        PathBuf::from("reference/assets/assets/minecraft/blockstates"),
-    ];
-
-    for c in &candidates {
-        if c.is_dir() {
-            return Some(c.clone());
-        }
-    }
-
-    if asset_index.is_some() {
-        let test_path =
-            resolve_asset_path(assets_dir, asset_index, "minecraft/blockstates/stone.json");
-        if test_path.exists() {
-            return test_path.parent().map(|p| p.to_path_buf());
-        }
-    }
-
-    None
+fn resolve_blockstates_dir(jar_assets_dir: &Path) -> Option<PathBuf> {
+    let path = jar_assets_dir.join("minecraft/blockstates");
+    path.is_dir().then_some(path)
 }
 
 fn extract_default_model_ref(blockstate: &BlockstateFile) -> Option<ModelRef> {
@@ -425,7 +418,7 @@ struct ResolvedModel {
 
 fn resolve_model(
     model_id: &str,
-    assets_dir: &Path,
+    jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
     cache: &mut HashMap<String, ModelFile>,
 ) -> ResolvedModel {
@@ -434,7 +427,7 @@ fn resolve_model(
     let mut current_id = model_id.to_string();
 
     for _ in 0..20 {
-        let Some(model) = load_model(&current_id, assets_dir, asset_index, cache) else {
+        let Some(model) = load_model(&current_id, jar_assets_dir, asset_index, cache) else {
             break;
         };
 
@@ -479,7 +472,7 @@ fn resolve_ref(value: &str, map: &HashMap<String, String>, depth: u32) -> String
 
 fn load_model<'a>(
     model_id: &str,
-    assets_dir: &Path,
+    jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
     cache: &'a mut HashMap<String, ModelFile>,
 ) -> Option<&'a ModelFile> {
@@ -488,7 +481,7 @@ fn load_model<'a>(
     }
 
     let asset_key = model_id_to_asset_key(model_id);
-    let file_path = resolve_model_path(assets_dir, asset_index, &asset_key)?;
+    let file_path = resolve_model_path(jar_assets_dir, asset_index, &asset_key)?;
 
     let contents = std::fs::read_to_string(&file_path).ok()?;
     let model: ModelFile = serde_json::from_str(&contents).ok()?;
@@ -497,11 +490,11 @@ fn load_model<'a>(
 }
 
 fn resolve_model_path(
-    assets_dir: &Path,
+    jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
     asset_key: &str,
 ) -> Option<PathBuf> {
-    let primary = resolve_asset_path(assets_dir, asset_index, asset_key);
+    let primary = resolve_asset_path(jar_assets_dir, asset_index, asset_key);
     if primary.exists() {
         return Some(primary);
     }

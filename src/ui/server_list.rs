@@ -45,7 +45,7 @@ pub type PingResults = Arc<RwLock<HashMap<String, PingState>>>;
 
 impl ServerList {
     pub fn load(game_dir: &Path) -> Self {
-        let path = game_dir.join("pomc_servers.json");
+        let path = game_dir.join("servers.json");
         let servers = std::fs::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())

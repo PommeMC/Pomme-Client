@@ -46,7 +46,7 @@ impl BlockOverlayPipeline {
         command_pool: vk::CommandPool,
         render_pass: vk::RenderPass,
         allocator: &Arc<Mutex<Allocator>>,
-        assets_dir: &Path,
+        jar_assets_dir: &Path,
         asset_index: &Option<AssetIndex>,
     ) -> Self {
         let camera_layout = util::create_descriptor_set_layout(
@@ -127,7 +127,7 @@ impl BlockOverlayPipeline {
             queue,
             command_pool,
             allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
         );
 
@@ -299,7 +299,7 @@ fn load_destroy_atlas(
     queue: vk::Queue,
     command_pool: vk::CommandPool,
     allocator: &Arc<Mutex<Allocator>>,
-    assets_dir: &Path,
+    jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
 ) -> (vk::Image, vk::ImageView, Allocation) {
     let mut atlas_pixels = Vec::new();
@@ -307,7 +307,7 @@ fn load_destroy_atlas(
 
     for stage in 0..STAGE_COUNT {
         let key = format!("minecraft/textures/block/destroy_stage_{stage}.png");
-        let path = resolve_asset_path(assets_dir, asset_index, &key);
+        let path = resolve_asset_path(jar_assets_dir, asset_index, &key);
         if let Some((pixels, w, _h)) = util::load_png(&path) {
             tile_size = w;
             atlas_pixels.extend_from_slice(&pixels);

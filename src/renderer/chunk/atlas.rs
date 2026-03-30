@@ -44,7 +44,7 @@ impl TextureAtlas {
         queue: vk::Queue,
         command_pool: vk::CommandPool,
         allocator: &Arc<Mutex<Allocator>>,
-        assets_dir: &Path,
+        jar_assets_dir: &Path,
         asset_index: &Option<AssetIndex>,
         texture_names: &HashSet<&str>,
     ) -> Result<Self, vk::Result> {
@@ -75,7 +75,7 @@ impl TextureAtlas {
 
         for &name in texture_names {
             let asset_key = format!("minecraft/textures/block/{name}.png");
-            let file_path = resolve_asset_path(assets_dir, asset_index, &asset_key);
+            let file_path = resolve_asset_path(jar_assets_dir, asset_index, &asset_key);
             let (data, img_w, img_h) = match util::load_png(&file_path) {
                 Some(p) => p,
                 None => {

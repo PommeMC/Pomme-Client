@@ -4,6 +4,9 @@ use clap::Parser;
 #[command(name = "pomc", about = "Minecraft client")]
 pub struct LaunchArgs {
     #[arg(long)]
+    pub version: String,
+
+    #[arg(long)]
     pub username: Option<String>,
 
     #[arg(long)]
@@ -13,19 +16,19 @@ pub struct LaunchArgs {
     pub access_token: Option<String>,
 
     #[arg(long)]
-    pub server: Option<String>,
+    pub launch_token: Option<String>,
 
     #[arg(long)]
     pub assets_dir: Option<String>,
 
     #[arg(long)]
+    pub versions_dir: Option<String>,
+
+    #[arg(long)]
     pub game_dir: Option<String>,
 
     #[arg(long)]
-    pub version: Option<String>,
-
-    #[arg(long)]
-    pub launch_token: Option<String>,
+    pub quick_access_server: Option<String>,
 
     #[arg(long)]
     pub dev: bool,

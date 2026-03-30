@@ -82,7 +82,7 @@ pub struct Renderer {
     swapchain: SwapchainState,
     camera: Camera,
     registry: BlockRegistry,
-    assets_dir: std::path::PathBuf,
+    jar_assets_dir: std::path::PathBuf,
     asset_index: Option<AssetIndex>,
     atlas: TextureAtlas,
     chunk_pipeline: ChunkPipeline,
@@ -105,17 +105,19 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(
         window: Arc<Window>,
-        assets_dir: &Path,
+        jar_assets_dir: &Path,
         asset_index: &Option<AssetIndex>,
         game_dir: &Path,
     ) -> Result<Self, RendererError> {
         let size = window.inner_size();
 
         let registry_handle = {
-            let assets_dir = assets_dir.to_path_buf();
+            let jar_assets_dir = jar_assets_dir.to_path_buf();
             let asset_index = asset_index.clone();
             let game_dir = game_dir.to_path_buf();
-            std::thread::spawn(move || BlockRegistry::load(&assets_dir, &asset_index, &game_dir))
+            std::thread::spawn(move || {
+                BlockRegistry::load(&jar_assets_dir, &asset_index, &game_dir)
+            })
         };
 
         let ctx = VulkanContext::new(&window)?;
@@ -139,7 +141,7 @@ impl Renderer {
             ctx.command_pool,
             swapchain_state.render_pass,
             &ctx.allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
         );
 
@@ -166,7 +168,7 @@ impl Renderer {
             ctx.graphics_queue,
             ctx.command_pool,
             &ctx.allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
             &texture_names,
         )?;
@@ -186,7 +188,7 @@ impl Renderer {
             ctx.command_pool,
             swapchain_state.render_pass,
             &ctx.allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
         );
 
@@ -196,7 +198,7 @@ impl Renderer {
             ctx.command_pool,
             swapchain_state.render_pass,
             &ctx.allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
         );
 
@@ -208,7 +210,7 @@ impl Renderer {
             ctx.command_pool,
             swapchain_state.render_pass,
             &ctx.allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
         );
 
@@ -218,7 +220,7 @@ impl Renderer {
             ctx.command_pool,
             swapchain_state.render_pass,
             &ctx.allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
         );
 
@@ -246,7 +248,7 @@ impl Renderer {
             ctx.command_pool,
             swapchain_state.render_pass,
             &ctx.allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
         );
 
@@ -269,7 +271,7 @@ impl Renderer {
             swapchain: swapchain_state,
             camera,
             registry,
-            assets_dir: assets_dir.to_path_buf(),
+            jar_assets_dir: jar_assets_dir.to_path_buf(),
             asset_index: asset_index.clone(),
             atlas,
             chunk_pipeline,
@@ -597,12 +599,12 @@ impl Renderer {
         >,
     ) -> MeshDispatcher {
         let grass_colormap = crate::renderer::chunk::mesher::Colormap::load(
-            &self.assets_dir,
+            &self.jar_assets_dir,
             &self.asset_index,
             "minecraft/textures/colormap/grass.png",
         );
         let foliage_colormap = crate::renderer::chunk::mesher::Colormap::load(
-            &self.assets_dir,
+            &self.jar_assets_dir,
             &self.asset_index,
             "minecraft/textures/colormap/foliage.png",
         );
@@ -674,7 +676,7 @@ impl Renderer {
 
     pub fn reload_panorama(
         &mut self,
-        assets_dir: &Path,
+        jar_assets_dir: &Path,
         asset_index: &Option<crate::assets::AssetIndex>,
     ) {
         self.panorama_pipeline.reload_cubemap(
@@ -682,7 +684,7 @@ impl Renderer {
             self.ctx.graphics_queue,
             self.ctx.command_pool,
             &self.ctx.allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
         );
     }

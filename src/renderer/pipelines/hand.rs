@@ -51,7 +51,7 @@ impl HandPipeline {
         command_pool: vk::CommandPool,
         render_pass: vk::RenderPass,
         allocator: &Arc<Mutex<Allocator>>,
-        assets_dir: &Path,
+        jar_assets_dir: &Path,
         asset_index: &Option<AssetIndex>,
     ) -> Self {
         let mvp_layout = util::create_descriptor_set_layout(
@@ -134,7 +134,7 @@ impl HandPipeline {
             queue,
             command_pool,
             allocator,
-            assets_dir,
+            jar_assets_dir,
             asset_index,
         );
 
@@ -423,11 +423,11 @@ fn load_skin_texture(
     queue: vk::Queue,
     command_pool: vk::CommandPool,
     allocator: &Arc<Mutex<Allocator>>,
-    assets_dir: &Path,
+    jar_assets_dir: &Path,
     asset_index: &Option<AssetIndex>,
 ) -> (vk::Image, vk::ImageView, Allocation, u32, u32) {
     let skin_key = "minecraft/textures/entity/player/wide/steve.png";
-    let skin_path = resolve_asset_path(assets_dir, asset_index, skin_key);
+    let skin_path = resolve_asset_path(jar_assets_dir, asset_index, skin_key);
 
     let (pixels, width, height) = util::load_png(&skin_path).unwrap_or_else(|| {
         log::warn!(
