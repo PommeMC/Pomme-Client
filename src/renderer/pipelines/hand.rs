@@ -202,6 +202,11 @@ impl HandPipeline {
         let swing_y = (sqrt_sp * pi).sin() * 70.0_f32.to_radians();
         let swing_z = (sp * sp * pi).sin() * (-20.0_f32).to_radians();
 
+        let pivot = Vec3::new(-5.0 / 16.0, 2.0 / 16.0, 0.0);
+        let arm_local_rot = Mat4::from_translation(pivot)
+            * Mat4::from_rotation_z(0.1)
+            * Mat4::from_translation(-pivot);
+
         let model = Mat4::from_translation(Vec3::new(x_off + 0.64, y_off - 0.6, z_off - 0.72))
             * Mat4::from_rotation_y(45.0_f32.to_radians())
             * Mat4::from_rotation_y(swing_y)
@@ -211,8 +216,7 @@ impl HandPipeline {
             * Mat4::from_rotation_x(200.0_f32.to_radians())
             * Mat4::from_rotation_y((-135.0_f32).to_radians())
             * Mat4::from_translation(Vec3::new(5.6, 0.0, 0.0))
-            * Mat4::from_translation(Vec3::new(-5.0 / 16.0, 2.0 / 16.0, 0.0))
-            * Mat4::from_rotation_z(0.1);
+            * arm_local_rot;
 
         let mvp = proj * model;
         let uniform = HandUniform {
