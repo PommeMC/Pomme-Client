@@ -259,6 +259,17 @@ pub fn handle_game_packet(
                 collector_id: p.player_id.0,
             });
         }
+        ClientboundGamePacket::Respawn(p) => {
+            if let Some((_, dim)) = p.common.dimension_type(registry_holder) {
+                let _ = event_tx.try_send(NetworkEvent::DimensionInfo {
+                    height: dim.height,
+                    min_y: dim.min_y,
+                });
+            }
+            let _ = event_tx.try_send(NetworkEvent::GameModeChanged {
+                game_mode: p.common.game_type as u8,
+            });
+        }
         ClientboundGamePacket::PlayerCombatKill(p) => {
             log::info!("Player died: {}", p.message);
             let _ = event_tx.try_send(NetworkEvent::PlayerDied {

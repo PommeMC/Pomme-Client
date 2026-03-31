@@ -339,6 +339,7 @@ impl App {
         self.packet_sender = None;
         self.state = GameState::Menu;
         self.paused = false;
+        self.dead = false;
         self.position_set = false;
         self.chunk_store = ChunkStore::new(self.menu.render_distance);
         self.entity_store.clear();
