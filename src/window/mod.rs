@@ -275,6 +275,7 @@ impl App {
         let Some(window) = &self.window else { return };
         let captured = matches!(self.state, GameState::InGame)
             && !self.paused
+            && !self.dead
             && !self.inventory_open
             && !self.chat.is_open()
             && self.input.is_cursor_captured();
@@ -684,6 +685,9 @@ impl App {
     }
 
     fn tick_physics(&mut self) {
+        if self.dead {
+            return;
+        }
         if let Some(renderer) = &self.renderer {
             self.player.yaw = renderer.camera_yaw();
             self.player.pitch = renderer.camera_pitch();
@@ -1141,21 +1145,18 @@ impl ApplicationHandler for App {
                                     }
                                 }
 
-                                let ready = self.dead
-                                    || (self.position_set
-                                        && self
-                                            .renderer
-                                            .as_ref()
-                                            .is_some_and(|r| r.loaded_chunk_count() > 0));
+                                let ready = self.position_set
+                                    && self
+                                        .renderer
+                                        .as_ref()
+                                        .is_some_and(|r| r.loaded_chunk_count() > 0);
 
                                 if ready {
                                     if let Some(p) = &mut self.presence {
                                         p.playing_multiplayer(&self.version);
                                     }
                                     self.state = GameState::InGame;
-                                    if !self.dead {
-                                        self.apply_cursor_grab();
-                                    }
+                                    self.apply_cursor_grab();
                                     break 'redraw;
                                 }
                             }
@@ -1172,6 +1173,7 @@ impl ApplicationHandler for App {
                             }
 
                             let mut cancel = false;
+                            let mut pending_respawn = false;
 
                             if let (Some(renderer), Some(window)) =
                                 (&mut self.renderer, &self.window)
@@ -1187,33 +1189,56 @@ impl ApplicationHandler for App {
                                 let cy = sh / 2.0;
 
                                 let mut elements = Vec::new();
-
-                                elements.push(MenuElement::Text {
-                                    x: cx,
-                                    y: cy - fs,
-                                    text: status_text.into(),
-                                    scale: fs,
-                                    color: WHITE,
-                                    centered: true,
-                                });
-
-                                let btn_y = cy + fs;
                                 let clicked = self.input.left_just_pressed();
                                 let cursor = self.input.cursor_pos();
-                                if common::push_button(
-                                    &mut elements,
-                                    cursor,
-                                    cx - btn_w / 2.0,
-                                    btn_y,
-                                    btn_w,
-                                    btn_h,
-                                    gs,
-                                    fs,
-                                    "Cancel",
-                                    true,
-                                ) && clicked
-                                {
-                                    cancel = true;
+
+                                if self.dead {
+                                    let death_action = crate::ui::death::build_death_screen(
+                                        &mut elements,
+                                        sw,
+                                        sh,
+                                        cursor,
+                                        clicked,
+                                        gs,
+                                        &self.death_message,
+                                        self.death_ticks,
+                                    );
+                                    self.death_ticks += 1;
+                                    match death_action {
+                                        crate::ui::death::DeathAction::Respawn => {
+                                            pending_respawn = true;
+                                        }
+                                        crate::ui::death::DeathAction::TitleScreen => {
+                                            cancel = true;
+                                        }
+                                        crate::ui::death::DeathAction::None => {}
+                                    }
+                                } else {
+                                    elements.push(MenuElement::Text {
+                                        x: cx,
+                                        y: cy - fs,
+                                        text: status_text.into(),
+                                        scale: fs,
+                                        color: WHITE,
+                                        centered: true,
+                                    });
+
+                                    let btn_y = cy + fs;
+                                    if common::push_button(
+                                        &mut elements,
+                                        cursor,
+                                        cx - btn_w / 2.0,
+                                        btn_y,
+                                        btn_w,
+                                        btn_h,
+                                        gs,
+                                        fs,
+                                        "Cancel",
+                                        true,
+                                    ) && clicked
+                                    {
+                                        cancel = true;
+                                    }
                                 }
 
                                 self.input.clear_click_events();
@@ -1230,7 +1255,9 @@ impl ApplicationHandler for App {
                                 }
                             }
 
-                            if cancel {
+                            if pending_respawn {
+                                self.send_respawn();
+                            } else if cancel {
                                 self.disconnect_to_menu(None);
                             }
                         }
