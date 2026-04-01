@@ -32,6 +32,7 @@ pub fn build_death_screen(
     clicked: bool,
     gs: f32,
     message: &str,
+    score: i32,
     ticks: u32,
 ) -> DeathAction {
     let mut action = DeathAction::None;
@@ -65,10 +66,11 @@ pub fn build_death_screen(
     }
 
     let score_label = "Score: ";
-    let score_value = "0";
+    let score_value = score.to_string();
     let char_w = fs * 0.6;
     let label_w = char_w * score_label.len() as f32;
-    let value_w = char_w * score_value.len() as f32;
+    let score_str = score_value.as_str();
+    let value_w = char_w * score_str.len() as f32;
     let total_w = label_w + value_w;
     let score_x = cx - total_w / 2.0;
     elements.push(MenuElement::Text {
@@ -82,7 +84,7 @@ pub fn build_death_screen(
     elements.push(MenuElement::Text {
         x: score_x + label_w,
         y: 100.0 * gs,
-        text: score_value.into(),
+        text: score_str.into(),
         scale: fs,
         color: [1.0, 1.0, 0.33, 1.0],
         centered: false,

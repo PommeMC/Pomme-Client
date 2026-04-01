@@ -44,6 +44,8 @@ pub struct LocalPlayer {
     pub swimming: bool,
     pub air_supply: i32,
     pub game_mode: u8,
+    pub score: i32,
+    pub entity_id: i32,
 }
 
 impl LocalPlayer {
@@ -67,6 +69,8 @@ impl LocalPlayer {
             swimming: false,
             air_supply: MAX_AIR_SUPPLY,
             game_mode: 0,
+            score: 0,
+            entity_id: -1,
         }
     }
 

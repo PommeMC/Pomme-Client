@@ -133,6 +133,13 @@ pub enum NetworkEvent {
         item_id: i32,
         collector_id: i32,
     },
+    PlayerLogin {
+        entity_id: i32,
+    },
+    PlayerScore {
+        entity_id: i32,
+        score: i32,
+    },
     PlayerDied {
         message: String,
     },

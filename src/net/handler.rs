@@ -23,6 +23,9 @@ pub fn handle_game_packet(
             let _ = event_tx.try_send(NetworkEvent::GameModeChanged {
                 game_mode: p.common.game_type as u8,
             });
+            let _ = event_tx.try_send(NetworkEvent::PlayerLogin {
+                entity_id: p.player_id.0,
+            });
         }
         ClientboundGamePacket::LevelChunkWithLight(p) => {
             log::trace!(
@@ -249,6 +252,14 @@ pub fn handle_game_packet(
                     let _ = event_tx.try_send(NetworkEvent::EntityBabyFlag {
                         id: p.id.0,
                         is_baby: *is_baby,
+                    });
+                }
+                if item.index == 16
+                    && let azalea_entity::EntityDataValue::Int(score) = &item.value
+                {
+                    let _ = event_tx.try_send(NetworkEvent::PlayerScore {
+                        entity_id: p.id.0,
+                        score: *score,
                     });
                 }
             }

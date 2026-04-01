@@ -648,6 +648,14 @@ impl App {
                         });
                     self.item_entity_store.pickup(item_id, target_pos);
                 }
+                NetworkEvent::PlayerLogin { entity_id } => {
+                    self.player.entity_id = entity_id;
+                }
+                NetworkEvent::PlayerScore { entity_id, score } => {
+                    if entity_id == self.player.entity_id {
+                        self.player.score = score;
+                    }
+                }
                 NetworkEvent::PlayerDied { message } => {
                     self.dead = true;
                     self.death_message = message;
@@ -1211,6 +1219,7 @@ impl ApplicationHandler for App {
                                             clicked,
                                             gs,
                                             &self.death_message,
+                                            self.player.score,
                                             self.death_ticks,
                                         );
                                         self.death_ticks += 1;
@@ -1457,6 +1466,7 @@ impl ApplicationHandler for App {
                                             clicked,
                                             gs,
                                             &self.death_message,
+                                            self.player.score,
                                             self.death_ticks,
                                         );
                                         self.death_ticks += 1;
