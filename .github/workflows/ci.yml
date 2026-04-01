@@ -35,7 +35,7 @@ jobs:
         run: cargo build --release
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pomc-client-windows
           path: target/release/pomc.exe
@@ -61,7 +61,7 @@ jobs:
         run: cargo build --release
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pomc-client-linux
           path: target/release/pomc
@@ -82,7 +82,7 @@ jobs:
         run: cargo build --release
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pomc-client-macos
           path: target/release/pomc
@@ -177,7 +177,7 @@ jobs:
         run: pnpm tauri build
 
       - name: Upload launcher installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pomc-launcher-windows
           path: launcher/src-tauri/target/release/bundle/nsis/*.exe
