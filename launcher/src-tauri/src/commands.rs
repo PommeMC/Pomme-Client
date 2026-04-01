@@ -326,6 +326,9 @@ pub async fn launch_game(
         cmd.arg("--quick-access-server").arg(server);
     }
 
+    #[cfg(debug_assertions)]
+    cmd.arg("--dev");
+
     #[cfg(unix)]
     cmd.process_group(0);
 

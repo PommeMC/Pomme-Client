@@ -14,7 +14,7 @@ use clap::Parser;
 use net::connection::ConnectArgs;
 use std::sync::Arc;
 
-const SUPPORTED_VERSIONS: &[&str] = &["26.1"];
+const SUPPORTED_VERSIONS: &[&str] = &["26.1", "26.1.1-rc-1", "26.1.1"];
 const _: () = assert!(!SUPPORTED_VERSIONS.is_empty());
 
 fn main() {
@@ -51,7 +51,9 @@ fn main() {
             version,
             SUPPORTED_VERSIONS
         );
-        std::process::exit(1);
+        if !cfg!(debug_assertions) && !args.dev {
+            std::process::exit(1);
+        }
     }
 
     let data_dirs = dirs::DataDirs::resolve(
