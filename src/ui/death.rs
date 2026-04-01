@@ -34,8 +34,8 @@ pub fn build_death_screen(
         w: screen_w,
         h: screen_h,
         corner_radius: 0.0,
-        color_top: [0.31, 0.0, 0.0, 0.38],
-        color_bottom: [0.63, 0.0, 0.0, 0.38],
+        color_top: [0.314, 0.0, 0.0, 0.376],
+        color_bottom: [0.125, 0.0, 0.0, 0.627],
     });
 
     let title_fs = fs * 2.0;
