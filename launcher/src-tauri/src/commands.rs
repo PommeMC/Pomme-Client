@@ -1,12 +1,15 @@
+use crate::installations::{Installation, InstallationDraft, InstallationError};
 use crate::settings::LauncherSettings;
 use crate::{AppState, installations, storage};
 
-use crate::installations::{Installation, InstallationDraft, InstallationError};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::os::unix::process::ExitStatusExt;
 use std::process::Stdio;
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::sync::Mutex;
 
 #[derive(Deserialize)]
 struct MojangPatchNotes {
@@ -360,13 +363,7 @@ pub async fn launch_game(
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let tx2 = tx.clone();
 
-    tokio::spawn(async move {
-        let status = child
-            .wait()
-            .await
-            .expect("client process encountered an error");
-        println!("client status was: {}", status);
-    });
+    let last_error_line = Arc::new(Mutex::new(None::<String>));
 
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
@@ -383,6 +380,7 @@ pub async fn launch_game(
     });
 
     let app_handle = app.clone();
+    let last_error_writer = last_error_line.clone();
     tokio::spawn(async move {
         while let Some(line) = rx.recv().await {
             let _ = app.emit(
@@ -394,11 +392,42 @@ pub async fn launch_game(
             );
             let state = app_handle.state::<AppState>();
             let mut logs = state.client_logs.lock().await;
-            logs.push_back(line);
+            logs.push_back(line.clone());
             if logs.len() > 10_000 {
                 logs.pop_front();
             }
+            if line.contains(" ERROR ") {
+                *last_error_writer.lock().await = Some(line);
+            }
         }
+    });
+
+    let app_handle = app.clone();
+    tokio::spawn(async move {
+        let status = child
+            .wait()
+            .await
+            .expect("client process encountered an error");
+
+        if !status.success() {
+            let last = last_error_line.lock().await.clone();
+
+            #[cfg(unix)]
+            let signal = status.signal();
+            #[cfg(not(unix))]
+            let signal: Option<i32> = None;
+
+            let _ = app_handle.emit(
+                "game_exited",
+                serde_json::json!({
+                    "code": status.code(),
+                    "signal": signal,
+                    "last_line": last,
+                }),
+            );
+        }
+
+        println!("client status was: {}", status);
     });
 
     Ok(format!("Launched as {username}"))

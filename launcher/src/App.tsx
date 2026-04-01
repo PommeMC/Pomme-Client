@@ -201,6 +201,32 @@ function App() {
       return;
     }
 
+    const unlisten = await listen<{
+      code: number | null;
+      signal: number | null;
+      last_line: string | null;
+    }>("game_exited", (event) => {
+      const { code, signal, last_line } = event.payload;
+      const SIGNAL_NAMES: Record<number, string> = {
+        4: "SIGILL",
+        6: "SIGABRT",
+        7: "SIGBUS",
+        8: "SIGFPE",
+        11: "SIGSEGV",
+        16: "SIGSTKFLT",
+      };
+      const reason =
+        signal !== null ? `signal ${SIGNAL_NAMES[signal] ?? signal}` : `code ${code ?? "unknown"}`;
+      setOpenedDialog({
+        name: "alert_dialog",
+        props: {
+          title: `Game exited (${reason})`,
+          message: last_line ?? "The game exited unexpectedly.",
+        },
+      });
+      unlisten();
+    });
+
     try {
       setLaunchingStatus("launching");
       setStatus("Launching Pomme...");
