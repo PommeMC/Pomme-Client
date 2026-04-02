@@ -1,10 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
-import "../styles.css";
-import Titlebar from "./Titlebar";
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useState, useRef } from "react";
+import { AnsiHtml } from "fancy-ansi/react";
+import { useEffect, useRef, useState } from "react";
 import { HiClipboardCopy } from "react-icons/hi";
 import { HiXMark } from "react-icons/hi2";
+import "../styles.css";
+import Titlebar from "./Titlebar";
 
 const getLogs: () => Promise<string[]> = async () => invoke("get_client_logs");
 
@@ -22,42 +23,21 @@ interface Filter {
 }
 
 const Log = ({ log, filter }: { log: string; filter: Filter }) => {
-  let splitIndex = log.indexOf("]");
-  if (splitIndex === -1) {
-    return <p className="console-log">{log}</p>;
-  }
-  let start_str = log.slice(0, splitIndex);
-  let message = log.slice(splitIndex + 1);
+  const type = ["INFO", "WARN", "DEBUG", "ERROR"].find((tag) => log.includes(`${tag}`)) ?? "";
 
-  let type = "";
-
-  for (const tag of ["INFO", "WARN", "DEBUG", "ERROR"]) {
-    if (start_str.includes(tag)) {
-      type = tag;
-    }
-  }
-
-  let render = false;
-  if (
+  let render =
     (type === "INFO" && filter.info_enabled) ||
     (type === "WARN" && filter.warn_enabled) ||
     (type === "DEBUG" && filter.debug_enabled) ||
-    (type === "ERROR" && filter.error_enabled)
-  )
-    render = true;
+    (type === "ERROR" && filter.error_enabled) ||
+    (type === "" && filter.debug_enabled); // treat unknown as debug
 
   if (filter.search && !log.includes(filter.search)) render = false;
-
   if (!render) return null;
-
-  if (type === "") {
-    return <p className="console-log">{log}</p>;
-  }
 
   return (
     <p className="console-log">
-      <span className={`console-text-${type.toLowerCase()}`}>{start_str}]</span>
-      {message}
+      <AnsiHtml className={`console-text ${type.toLowerCase()}`} text={log} />
     </p>
   );
 };
@@ -99,7 +79,6 @@ export default function Console() {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-
     let eventsRegistered = false;
 
     const initListener = async () => {
@@ -116,15 +95,12 @@ export default function Console() {
             setLogs((prevLogs) => {
               const updatedLogs = [...prevLogs, recv.val as string];
               const maxLogs = 10_000;
-
               if (updatedLogs.length > maxLogs) {
                 return updatedLogs.slice(1);
               }
               return updatedLogs;
             });
-
             break;
-
           case "reset":
             setLogs([]);
             break;
@@ -154,8 +130,7 @@ export default function Console() {
   }, [logs]);
 
   const copyLogs = () => {
-    let copyText = logs.join("\n");
-    navigator.clipboard.writeText(copyText);
+    navigator.clipboard.writeText(logs.join("\n"));
   };
 
   return (
@@ -164,10 +139,10 @@ export default function Console() {
       <div className="console-holder">
         <div className="console">
           <div className="console-scroll">
-            {logs.map((object, key) => (
-              <Log log={object} key={key} filter={filter} />
+            {logs.map((log, key) => (
+              <Log log={log} key={key} filter={filter} />
             ))}
-            <div ref={bottomRef} />{" "}
+            <div ref={bottomRef} />
           </div>
         </div>
         <div className="console-bottom-bar">

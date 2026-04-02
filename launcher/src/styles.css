@@ -24,10 +24,35 @@
   --radius: 10px;
   --radius-lg: 14px;
 
+  --console-bg: var(--glass);
   --console-info: #00f89a;
   --console-warning: #ffc100;
   --console-debug: #7abfff;
   --console-error: #fc757a;
+
+  --ansi-black: #191e2a;
+  --ansi-red: #ff3333;
+  --ansi-green: #bae67e;
+  --ansi-yellow: #ffa759;
+  --ansi-blue: #73d0ff;
+  --ansi-magenta: #ffd580;
+  --ansi-cyan: #95e6cb;
+  --ansi-white: #c7c7c7;
+  --ansi-bright-black: #384052;
+  --ansi-bright-red: #ff6666;
+  --ansi-bright-green: #cef0a0;
+  --ansi-bright-yellow: #ffbf80;
+  --ansi-bright-blue: #9ddeff;
+  --ansi-bright-magenta: #ffe6a0;
+  --ansi-bright-cyan: #b8eed9;
+  --ansi-bright-white: #e8e8e8;
+
+  --ansi-bold-font-weight: 600;
+  --ansi-dim-opacity: 0.45;
+
+  --ansi-frame-outline: 1px solid;
+  --ansi-superscript-font-size: 80%;
+  --ansi-subscript-font-size: 80%;
 }
 
 *,
@@ -2826,7 +2851,7 @@ body {
 /* ==== Console ==== */
 
 .console-holder {
-  padding: 1rem;
+  padding: 0.5rem;
   height: 100%;
   width: 100%;
   display: flex;
@@ -2863,7 +2888,7 @@ body {
   padding: 0.5rem;
   flex: 1 1 auto;
   flex-direction: column;
-  background-color: rgba(140, 200, 250, 0.05);
+  background-color: var(--console-bg);
   border-radius: 1rem;
 }
 
@@ -2991,18 +3016,24 @@ body {
   flex-shrink: 0;
 }
 
-.console-text-info {
-  color: var(--console-info);
-}
+.console-text {
+  font-size: 0.9rem;
 
-.console-text-warn {
-  color: var(--console-warning);
-}
+  --mix-percent: 60%;
 
-.console-text-debug {
-  color: var(--console-debug);
-}
+  &.info {
+    color: color-mix(in srgb, var(--console-info) var(--mix-percent), var(--text));
+  }
 
-.console-text-error {
-  color: var(--console-error);
+  &.warn {
+    color: color-mix(in srgb, var(--console-warning) var(--mix-percent), var(--text));
+  }
+
+  &.debug {
+    color: color-mix(in srgb, var(--console-debug) var(--mix-percent), var(--text));
+  }
+
+  &.error {
+    color: color-mix(in srgb, var(--console-error) var(--mix-percent), var(--text));
+  }
 }

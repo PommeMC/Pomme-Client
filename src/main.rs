@@ -3,6 +3,7 @@ mod assets;
 mod dirs;
 mod discord;
 mod entity;
+mod logging;
 mod net;
 mod physics;
 mod player;
@@ -13,32 +14,10 @@ mod world;
 
 use clap::Parser;
 use net::connection::ConnectArgs;
-use std::path::Path;
 use std::sync::Arc;
 
 const SUPPORTED_VERSIONS: &[&str] = &["26.1", "26.1.1-rc-1", "26.1.1"];
 const _: () = assert!(!SUPPORTED_VERSIONS.is_empty());
-
-fn rotate_logs(log_dir: &Path) -> std::io::Result<()> {
-    let latest = log_dir.join("latest.log");
-    if !latest.exists() {
-        return Ok(());
-    }
-    let modified = latest.metadata()?.modified()?;
-    let datetime = chrono::DateTime::<chrono::Local>::from(modified);
-    let date = datetime.format("%Y-%m-%d");
-    let index = (1..)
-        .find(|i| !log_dir.join(format!("{date}-{i}.log.gz")).exists())
-        .unwrap();
-    let dest = log_dir.join(format!("{date}-{index}.log.gz"));
-    let input = std::fs::read(&latest)?;
-    let output_file = std::fs::File::create(&dest)?;
-    let mut encoder = flate2::write::GzEncoder::new(output_file, flate2::Compression::default());
-    std::io::Write::write_all(&mut encoder, &input)?;
-    encoder.finish().map_err(std::io::Error::other)?;
-    std::fs::remove_file(&latest)?;
-    Ok(())
-}
 
 fn main() {
     let args = args::LaunchArgs::parse();
@@ -58,18 +37,10 @@ fn main() {
     let log_dir = data_dirs.game_dir.join("logs");
     std::fs::create_dir_all(&log_dir).unwrap();
 
-    if let Err(e) = rotate_logs(&log_dir) {
+    if let Err(e) = logging::rotate(&log_dir) {
         eprintln!("Failed to rotate logs: {e}");
     }
-
-    let file_appender = tracing_appender::rolling::never(&log_dir, "latest.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-    let subscriber = tracing_subscriber::FmtSubscriber::builder()
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .with_writer(non_blocking)
-        .with_ansi(false)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber).unwrap();
+    logging::init(&log_dir);
 
     if !cfg!(debug_assertions) && !args.dev {
         match &args.launch_token {

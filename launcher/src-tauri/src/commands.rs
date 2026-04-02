@@ -270,6 +270,7 @@ pub async fn launch_game(
     std::fs::write(&token_path, &token).map_err(|e| e.to_string())?;
 
     let mut cmd = tokio::process::Command::new(&exe);
+    cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
     if debug_enabled.unwrap_or(false) {
@@ -333,11 +334,12 @@ pub async fn launch_game(
     cmd.process_group(0);
 
     let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .expect("couldn't take stderr from game process");
-    let mut reader = BufReader::new(stderr).lines();
+
+    let stdout = child.stdout.take().expect("couldn't take stdout");
+    let stderr = child.stderr.take().expect("couldn't take stderr");
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let tx2 = tx.clone();
 
     tokio::spawn(async move {
         let status = child
@@ -347,32 +349,35 @@ pub async fn launch_game(
         println!("client status was: {}", status);
     });
 
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let _ = tx.send(line);
+        }
+    });
+
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let _ = tx2.send(line);
+        }
+    });
+
     let app_handle = app.clone();
     tokio::spawn(async move {
-        loop {
-            match reader.next_line().await {
-                Ok(Some(line)) => {
-                    let _ = app
-                        .emit(
-                            "console_message",
-                            ConsoleEvent {
-                                message_type: ConsoleEventType::Message,
-                                val: Some(line.clone()),
-                            },
-                        )
-                        .map_err(|e| e.to_string());
-                    let state = app_handle.state::<Mutex<crate::AppState>>();
-                    let mut state = state.lock().await;
-                    state.client_logs.push_back(line);
-                    if state.client_logs.len() > 10_000 {
-                        state.client_logs.pop_front();
-                    }
-                }
-                Ok(None) => break,
-                Err(e) => {
-                    eprintln!("reader error: {}", e);
-                    break;
-                }
+        while let Some(line) = rx.recv().await {
+            let _ = app.emit(
+                "console_message",
+                ConsoleEvent {
+                    message_type: ConsoleEventType::Message,
+                    val: Some(line.clone()),
+                },
+            );
+            let state = app_handle.state::<Mutex<crate::AppState>>();
+            let mut state = state.lock().await;
+            state.client_logs.push_back(line);
+            if state.client_logs.len() > 10_000 {
+                state.client_logs.pop_front();
             }
         }
     });
