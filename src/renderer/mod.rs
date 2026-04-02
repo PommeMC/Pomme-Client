@@ -133,6 +133,7 @@ impl Renderer {
             ctx.graphics_family,
             ctx.present_family,
             &ctx.allocator,
+            vk::SwapchainKHR::null(),
         )?;
 
         let mut menu_pipeline = MenuOverlayPipeline::new(
@@ -468,12 +469,7 @@ impl Renderer {
         self.chunk_pipeline
             .destroy(&self.ctx.device, &self.ctx.allocator);
 
-        self.swapchain.destroy(
-            &self.ctx.device,
-            &self.ctx.swapchain_loader,
-            &self.ctx.allocator,
-        );
-        self.swapchain = SwapchainState::new(
+        let mut old_swapchain = SwapchainState::new(
             &self.ctx.device,
             &self.ctx.surface_loader,
             &self.ctx.swapchain_loader,
@@ -484,7 +480,14 @@ impl Renderer {
             self.ctx.graphics_family,
             self.ctx.present_family,
             &self.ctx.allocator,
+            self.swapchain.swapchain,
         )?;
+        std::mem::swap(&mut self.swapchain, &mut old_swapchain);
+        old_swapchain.destroy(
+            &self.ctx.device,
+            &self.ctx.swapchain_loader,
+            &self.ctx.allocator,
+        );
 
         self.chunk_pipeline = ChunkPipeline::new(
             &self.ctx.device,

@@ -39,6 +39,7 @@ impl SwapchainState {
         graphics_family: u32,
         present_family: u32,
         allocator: &Arc<Mutex<Allocator>>,
+        old_swapchain: vk::SwapchainKHR,
     ) -> Result<Self, ContextError> {
         let caps = unsafe {
             surface_loader.get_physical_device_surface_capabilities(physical_device, surface)?
@@ -100,7 +101,8 @@ impl SwapchainState {
             .pre_transform(caps.current_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
             .present_mode(present_mode)
-            .clipped(true);
+            .clipped(true)
+            .old_swapchain(old_swapchain);
 
         let swapchain = unsafe { swapchain_loader.create_swapchain(&swapchain_info, None)? };
         let images = unsafe { swapchain_loader.get_swapchain_images(swapchain)? };
