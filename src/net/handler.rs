@@ -283,7 +283,7 @@ pub fn handle_game_packet(
             });
         }
         ClientboundGamePacket::PlayerCombatKill(p) => {
-            log::info!("Player died: {}", p.message);
+            tracing::info!("Player died: {}", p.message);
             let _ = event_tx.try_send(NetworkEvent::PlayerDied {
                 message: p.message.to_string(),
             });

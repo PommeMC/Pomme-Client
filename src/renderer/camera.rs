@@ -142,14 +142,6 @@ impl Camera {
         }
     }
 
-    pub fn third_person_dir(&self) -> Vec3 {
-        let fwd = self.forward_vec();
-        match self.mode {
-            CameraMode::ThirdPersonFront => fwd,
-            _ => -fwd,
-        }
-    }
-
     pub fn view_projection(&self) -> Mat4 {
         self.view_projection_with_fov(self.fov_radians(1.0))
     }

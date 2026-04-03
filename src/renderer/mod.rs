@@ -559,36 +559,31 @@ impl Renderer {
             return;
         }
         let max = camera::THIRD_PERSON_DISTANCE;
-        let dir = self.camera.third_person_dir();
+        let fwd = self.camera.forward_vec();
+        let dir = if self.camera.mode == camera::CameraMode::ThirdPersonFront {
+            fwd
+        } else {
+            -fwd
+        };
         let mut dist = max;
 
-        let step = 0.1;
+        let m = 0.4;
+        let corners = [
+            glam::Vec3::new(m, m, m),
+            glam::Vec3::new(m, m, -m),
+            glam::Vec3::new(m, -m, m),
+            glam::Vec3::new(m, -m, -m),
+            glam::Vec3::new(-m, m, m),
+            glam::Vec3::new(-m, m, -m),
+            glam::Vec3::new(-m, -m, m),
+            glam::Vec3::new(-m, -m, -m),
+        ];
+
+        let step = 0.2;
         let mut t = step;
         while t <= max {
             let p = eye_pos + dir * t;
-            let m = 0.4;
-            let offsets = [
-                glam::Vec3::ZERO,
-                glam::Vec3::new(m, 0.0, 0.0),
-                glam::Vec3::new(-m, 0.0, 0.0),
-                glam::Vec3::new(0.0, m, 0.0),
-                glam::Vec3::new(0.0, -m, 0.0),
-                glam::Vec3::new(0.0, 0.0, m),
-                glam::Vec3::new(0.0, 0.0, -m),
-                glam::Vec3::new(m, m, 0.0),
-                glam::Vec3::new(-m, m, 0.0),
-                glam::Vec3::new(m, -m, 0.0),
-                glam::Vec3::new(-m, -m, 0.0),
-                glam::Vec3::new(0.0, m, m),
-                glam::Vec3::new(0.0, -m, m),
-                glam::Vec3::new(0.0, m, -m),
-                glam::Vec3::new(0.0, -m, -m),
-                glam::Vec3::new(m, 0.0, m),
-                glam::Vec3::new(-m, 0.0, m),
-                glam::Vec3::new(m, 0.0, -m),
-                glam::Vec3::new(-m, 0.0, -m),
-            ];
-            let hit = offsets.iter().any(|off| {
+            let hit = corners.iter().any(|off| {
                 let check = p + *off;
                 let state = chunks.get_block_state(
                     check.x.floor() as i32,
@@ -604,13 +599,6 @@ impl Renderer {
             t += step;
         }
 
-        let cam_pos = eye_pos + dir * dist;
-        let min_y = eye_pos.y - 0.5;
-        if cam_pos.y < min_y {
-            let dy = eye_pos.y - min_y;
-            let dir_y = dir.y.abs().max(0.001);
-            dist = dist.min(dy / dir_y);
-        }
         self.camera.third_person_dist = dist.max(0.5);
     }
 
