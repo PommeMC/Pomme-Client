@@ -1,7 +1,7 @@
 use azalea_core::position::BlockPos;
 use azalea_inventory::ItemStack;
 
-use super::common::{push_item_count, WHITE};
+use super::common::{WHITE, push_item_count};
 use crate::player::inventory::item_resource_name;
 use crate::renderer::pipelines::menu_overlay::{MenuElement, SpriteId};
 

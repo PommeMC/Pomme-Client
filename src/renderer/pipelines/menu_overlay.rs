@@ -1763,16 +1763,17 @@ fn build_item_atlas(
     let item_parent = jar_base.join("minecraft/textures/item");
     let block_parent = jar_base.join("minecraft/textures/block");
 
+    let mut seen = std::collections::HashSet::new();
     let mut item_names: Vec<String> = Vec::new();
 
     for dir in [&item_parent, &block_parent] {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let fname = entry.file_name().to_string_lossy().to_string();
-                if let Some(name) = fname.strip_suffix(".png") {
-                    if !item_names.contains(&name.to_string()) {
-                        item_names.push(name.to_string());
-                    }
+                if let Some(name) = fname.strip_suffix(".png")
+                    && seen.insert(name.to_string())
+                {
+                    item_names.push(name.to_string());
                 }
             }
         }

@@ -1,6 +1,6 @@
 use azalea_inventory::ItemStack;
 
-use super::common::{self, push_item_count, WHITE};
+use super::common::{self, WHITE, push_item_count};
 use crate::player::inventory::{Inventory, item_resource_name};
 use crate::renderer::pipelines::menu_overlay::{MenuElement, SpriteId};
 
