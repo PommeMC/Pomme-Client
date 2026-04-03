@@ -82,6 +82,7 @@ impl DisplayMode {
 }
 
 struct App {
+    presence: Option<crate::discord::DiscordPresence>,
     display_mode: DisplayMode,
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
@@ -97,6 +98,7 @@ struct App {
     position_set: bool,
     state: GameState,
     menu: MainMenu,
+    version: String,
     tokio_rt: Arc<tokio::runtime::Runtime>,
     player: LocalPlayer,
     tick_accumulator: f32,
@@ -161,6 +163,7 @@ impl App {
         version: String,
         data_dirs: DataDirs,
         tokio_rt: Arc<tokio::runtime::Runtime>,
+        presence: Option<crate::discord::DiscordPresence>,
     ) -> Self {
         let (net_events, chat_sender, packet_sender) = match connection {
             Some(handle) => (
@@ -177,6 +180,7 @@ impl App {
         };
 
         Self {
+            presence,
             display_mode: DisplayMode::Windowed,
             window: None,
             renderer: None,
@@ -193,6 +197,7 @@ impl App {
             menu: MainMenu::new(&data_dirs.game_dir, Arc::clone(&tokio_rt)),
             tokio_rt,
             data_dirs,
+            version,
             options_from_game: false,
             last_render_distance: DEFAULT_RENDER_DISTANCE,
             server_render_distance: 0,
@@ -339,6 +344,9 @@ impl App {
         }
         if let Some(reason) = reason {
             self.menu.show_disconnect(reason);
+        }
+        if let Some(p) = &mut self.presence {
+            p.set_in_menu(&self.version);
         }
         self.apply_cursor_grab();
     }
@@ -828,6 +836,10 @@ impl ApplicationHandler for App {
             }
         };
 
+        if let Some(p) = &mut self.presence {
+            p.set_in_menu(&self.version);
+        }
+
         self.mesh_dispatcher = Some(renderer.create_mesh_dispatcher(self.biome_climate.clone()));
         if let Some(uuid) = self.pending_skin_uuid.take() {
             renderer.load_player_skin(&uuid, &self.tokio_rt);
@@ -1086,6 +1098,9 @@ impl ApplicationHandler for App {
                                         .is_some_and(|r| r.loaded_chunk_count() > 0);
 
                                 if ready {
+                                    if let Some(p) = &mut self.presence {
+                                        p.playing_multiplayer(&self.version);
+                                    }
                                     self.state = GameState::InGame;
                                     self.apply_cursor_grab();
                                     break 'redraw;
@@ -1670,14 +1685,16 @@ pub fn run(
     data_dirs: DataDirs,
     tokio_rt: Arc<tokio::runtime::Runtime>,
     auth: Option<LaunchAuth>,
+    presence: Option<crate::discord::DiscordPresence>,
 ) -> Result<(), WindowError> {
     let event_loop = EventLoop::new()?;
-    let mut app = App::new(connection, version, data_dirs, tokio_rt);
+    let mut app = App::new(connection, version, data_dirs, tokio_rt, presence);
     if let Some(auth) = auth {
         app.pending_skin_uuid = Some(auth.uuid);
         app.menu
             .set_launch_auth(auth.username, auth.uuid, auth.access_token);
     }
+
     event_loop.run_app(&mut app)?;
     Ok(())
 }

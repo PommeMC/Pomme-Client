@@ -1,6 +1,7 @@
 mod args;
 mod assets;
 mod dirs;
+mod discord;
 mod entity;
 mod net;
 mod physics;
@@ -102,7 +103,18 @@ fn main() {
         _ => None,
     };
 
-    if let Err(e) = window::run(connection, version.to_owned(), data_dirs, rt, launch_auth) {
+    let presence = crate::discord::DiscordPresence::start(version)
+        .inspect_err(|e| log::warn!("Discord rich presence unavailable: {e}"))
+        .ok();
+
+    if let Err(e) = window::run(
+        connection,
+        version.to_owned(),
+        data_dirs,
+        rt,
+        launch_auth,
+        presence,
+    ) {
         log::error!("Fatal: {e}");
         std::process::exit(1);
     }

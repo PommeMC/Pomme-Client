@@ -43,6 +43,7 @@ fontdue = "0.9.3"
 open = "5"
 base64 = "0.22"
 simdnbt = "0.10"
+discord-rich-presence = "1.1"
 
 [profile.dev]
 opt-level = 1
