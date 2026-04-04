@@ -266,6 +266,7 @@ function App() {
     server,
     launcherSettings.launchWithConsole,
     setLaunchedInstalls,
+    setOpenedDialog,
   ]);
 
   const dialogDragStartedInside = useRef(false);
