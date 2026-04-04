@@ -26,3 +26,6 @@ keyring = { version = "3", features = ["sync-secret-service", "windows-native"] 
 sha2 = "0.11"
 urlencoding = "2"
 hickory-resolver = { version = "0.25.2", features = ["tokio"] }
+thiserror = "2.0"
+fslock = "0.2"
+tauri-plugin-opener = "2"

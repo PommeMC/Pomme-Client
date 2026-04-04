@@ -6,12 +6,13 @@ import {
   AuthAccount,
   DownloadProgress,
   GameVersion,
-  Installation,
   LauncherSettings,
+  LaunchingStatus,
   OpenedDialog,
   Page,
   PatchNote,
 } from "./types";
+import { useInstallations } from "./installations.ts";
 
 const useLauncherSettings = () => {
   const [launcherSettings, setLauncherSettings] = useState<LauncherSettings>({
@@ -71,26 +72,14 @@ const useAppState = () => {
   const [modView, setModView] = useState<"list" | "grid">("list");
   const [modSearch, setModSearch] = useState("");
   const [modFilter, setModFilter] = useState("all");
-  const [installations, setInstallations] = useState<Installation[]>([
-    {
-      id: "default",
-      name: "Latest Release",
-      version: "",
-      lastPlayed: "Today",
-      directory: "default",
-      width: 854,
-      height: 480,
-    },
-  ]);
-  const [activeInstall, setActiveInstall] = useState("default");
-  const selectedVersion = installations.find((i) => i.id === activeInstall)?.version || "";
   const [versions, setVersions] = useState<GameVersion[]>([]);
-  const [launching, setLaunching] = useState(false);
+  const [launchingStatus, setLaunchingStatus] = useState<LaunchingStatus>(null);
   const [authLoading, setAuthLoading] = useState(false);
   const [status, setStatus] = useState("");
   const [news, setNews] = useState<PatchNote[]>([]);
   const [skinUrl, setSkinUrl] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+  const [downloadedVersions, setDownloadedVersions] = useState<Set<string>>(new Set());
 
   const account = accounts[activeIndex] || null;
   const username = account?.username || "Steve";
@@ -99,8 +88,6 @@ const useAppState = () => {
     body: string;
     image_url: string;
   } | null>(null);
-
-  const launcherSettings = useLauncherSettings();
 
   return {
     account,
@@ -119,15 +106,10 @@ const useAppState = () => {
     setModSearch,
     modFilter,
     setModFilter,
-    installations,
-    setInstallations,
-    activeInstall,
-    setActiveInstall,
-    selectedVersion,
     versions,
     setVersions,
-    launching,
-    setLaunching,
+    launchingStatus,
+    setLaunchingStatus,
     authLoading,
     setAuthLoading,
     status,
@@ -143,9 +125,12 @@ const useAppState = () => {
     username,
     openedDialog,
     setOpenedDialog,
+    downloadedVersions,
+    setDownloadedVersions,
 
-    launcherSettings,
+    launcherSettings: useLauncherSettings(),
     ...useServers(),
+    ...useInstallations(),
   };
 };
 

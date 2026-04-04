@@ -77,3 +77,31 @@ fn data_dir() -> PathBuf {
         .map(|dirs| dirs.data_dir().to_path_buf())
         .unwrap_or_else(|| Path::new(".pomme").to_path_buf())
 }
+
+static MARKER_PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+pub fn remove_marker() {
+    if let Some(path) = MARKER_PATH.get() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+pub struct LaunchedMarker;
+
+impl LaunchedMarker {
+    pub fn new(game_dir: &Path) -> Result<Self, String> {
+        let path = game_dir.join("launched.marker");
+        if path.exists() {
+            return Err("Another instance of this installation is already running.".into());
+        }
+        let _ = std::fs::write(&path, "");
+        MARKER_PATH.set(path).ok();
+        Ok(Self)
+    }
+}
+
+impl Drop for LaunchedMarker {
+    fn drop(&mut self) {
+        remove_marker();
+    }
+}

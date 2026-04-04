@@ -9,6 +9,7 @@ static DATA_DIR: LazyLock<PathBuf> = {
     })
 };
 
+/// `.pomme/`
 pub fn data_dir() -> &'static Path {
     &DATA_DIR
 }
@@ -30,49 +31,57 @@ pub fn ensure_dirs() {
 
     ensure_file(&settings_file(), "{}");
     ensure_file(&accounts_file(), "[]");
-    ensure_file(&installations_file(), "[]");
 }
 
+/// `.pomme/assets/`
 pub fn assets_dir() -> PathBuf {
     data_dir().join("assets")
 }
+/// `.pomme/assets/indexes/`
 pub fn indexes_dir() -> PathBuf {
     assets_dir().join("indexes")
 }
+/// `.pomme/assets/objects/`
 pub fn objects_dir() -> PathBuf {
     assets_dir().join("objects")
 }
 
+/// `.pomme/pomme_assets/`
 pub fn pomme_assets_dir() -> PathBuf {
     data_dir().join("pomme_assets")
 }
 
+/// `.pomme/versions/`
 pub fn versions_dir() -> PathBuf {
     data_dir().join("versions")
 }
+/// `.pomme/versions/{version}/`
 pub fn version_dir(version: &str) -> PathBuf {
     versions_dir().join(version)
 }
+/// `.pomme/versions/{version}/{version}.jar`
 pub fn version_jar(version: &str) -> PathBuf {
     version_dir(version).join(format!("{version}.jar"))
 }
+/// `.pomme/versions/{version}/extracted/`
 pub fn version_extracted_dir(version: &str) -> PathBuf {
     version_dir(version).join("extracted")
 }
+/// `.pomme/versions/{version}/extracted/.extracted`
 pub fn version_extracted_marker(version: &str) -> PathBuf {
     version_extracted_dir(version).join(".extracted")
 }
 
+/// `.pomme/installations/`
 pub fn installations_dir() -> PathBuf {
     data_dir().join("installations")
 }
 
+/// `.pomme/settings.json`
 pub fn settings_file() -> PathBuf {
     data_dir().join("settings.json")
 }
+/// `.pomme/accounts.json`
 pub fn accounts_file() -> PathBuf {
     data_dir().join("accounts.json")
-}
-pub fn installations_file() -> PathBuf {
-    data_dir().join("installations.json")
 }

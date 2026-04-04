@@ -1,14 +1,18 @@
+use crate::installations::{
+    Installation, InstallationDraft, InstallationError, InstallationsResult,
+};
 use crate::settings::LauncherSettings;
-use crate::storage;
+use crate::{AppState, installations, storage};
 
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
 use std::process::Stdio;
+use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
-use tokio::{
-    io::{AsyncBufReadExt, BufReader},
-    sync::Mutex,
-};
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::sync::Mutex;
 
 #[derive(Deserialize)]
 struct MojangPatchNotes {
@@ -178,14 +182,27 @@ pub fn remove_account(uuid: String) {
 
 #[derive(Deserialize)]
 struct VersionManifest {
+    latest: LatestVersions,
     versions: Vec<VersionEntry>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize)]
 struct VersionEntry {
     id: String,
     #[serde(rename = "type")]
     version_type: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct LatestVersions {
+    pub release: String,
+    pub snapshot: String,
+}
+
+#[derive(Serialize)]
+pub struct Versions {
+    pub latest: LatestVersions,
+    pub versions: Vec<GameVersion>,
 }
 
 #[derive(Serialize, Clone)]
@@ -194,9 +211,9 @@ pub struct GameVersion {
     pub version_type: String,
 }
 
-static VERSION_CACHE: std::sync::OnceLock<Vec<GameVersion>> = std::sync::OnceLock::new();
+static VERSION_CACHE: std::sync::OnceLock<Versions> = std::sync::OnceLock::new();
 
-async fn fetch_versions() -> Result<&'static Vec<GameVersion>, String> {
+pub async fn fetch_versions() -> Result<&'static Versions, String> {
     if let Some(cached) = VERSION_CACHE.get() {
         return Ok(cached);
     }
@@ -218,7 +235,9 @@ async fn fetch_versions() -> Result<&'static Vec<GameVersion>, String> {
         })
         .collect();
 
-    Ok(VERSION_CACHE.get_or_init(|| versions))
+    let latest: LatestVersions = manifest.latest;
+
+    Ok(VERSION_CACHE.get_or_init(|| Versions { latest, versions }))
 }
 
 #[tauri::command]
@@ -226,6 +245,7 @@ pub async fn get_versions(show_snapshots: Option<bool>) -> Result<Vec<GameVersio
     let all = fetch_versions().await?;
     let include_snapshots = show_snapshots.unwrap_or(false);
     Ok(all
+        .versions
         .iter()
         .filter(|v| include_snapshots || v.version_type == "release")
         .cloned()
@@ -240,11 +260,16 @@ pub async fn refresh_account(uuid: String) -> Result<crate::auth::AuthAccount, S
 }
 
 #[tauri::command]
-pub async fn ensure_assets(app: tauri::AppHandle, version: String) -> Result<(), String> {
+pub async fn ensure_assets(app: AppHandle, version: String) -> Result<(), String> {
     if crate::downloader::needs_download(&version) {
         crate::downloader::download(&app, &version).await?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn get_downloaded_versions() -> Vec<String> {
+    crate::downloader::get_downloaded_versions().await
 }
 
 #[tauri::command]
@@ -341,13 +366,7 @@ pub async fn launch_game(
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let tx2 = tx.clone();
 
-    tokio::spawn(async move {
-        let status = child
-            .wait()
-            .await
-            .expect("client process encountered an error");
-        println!("client status was: {}", status);
-    });
+    let stderr_log = Arc::new(Mutex::new(Vec::<String>::new()));
 
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
@@ -356,42 +375,71 @@ pub async fn launch_game(
         }
     });
 
+    let stderr_log_writer = stderr_log.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
+            stderr_log_writer.lock().await.push(line.clone());
             let _ = tx2.send(line);
         }
     });
 
+    let app_emitter = app.clone();
     let app_handle = app.clone();
     tokio::spawn(async move {
         while let Some(line) = rx.recv().await {
-            let _ = app.emit(
+            let _ = app_emitter.emit(
                 "console_message",
                 ConsoleEvent {
                     message_type: ConsoleEventType::Message,
                     val: Some(line.clone()),
                 },
             );
-            let state = app_handle.state::<Mutex<crate::AppState>>();
-            let mut state = state.lock().await;
-            state.client_logs.push_back(line);
-            if state.client_logs.len() > 10_000 {
-                state.client_logs.pop_front();
+            let state = app_handle.state::<AppState>();
+            let mut logs = state.client_logs.lock().await;
+            logs.push_back(line.clone());
+            if logs.len() > 10_000 {
+                logs.pop_front();
             }
         }
+    });
+
+    let app_handle = app.clone();
+    tokio::spawn(async move {
+        let status = child
+            .wait()
+            .await
+            .expect("client process encountered an error");
+
+        if !status.success() {
+            let stderr = stderr_log.lock().await.clone();
+
+            #[cfg(unix)]
+            let signal = status.signal();
+            #[cfg(not(unix))]
+            let signal: Option<i32> = None;
+
+            let _ = app_handle.emit(
+                "game_exited",
+                serde_json::json!({
+                    "code": status.code(),
+                    "signal": signal,
+                    "stderr": stderr,
+                    "windows": cfg!(windows),
+                }),
+            );
+        }
+
+        println!("client status was: {}", status);
     });
 
     Ok(format!("Launched as {username}"))
 }
 
 #[tauri::command]
-pub async fn get_client_logs(
-    state: State<'_, Mutex<crate::AppState>>,
-) -> Result<VecDeque<String>, ()> {
-    let state = state.lock().await;
-
-    Ok(state.client_logs.clone())
+pub async fn get_client_logs(state: State<'_, AppState>) -> Result<VecDeque<String>, ()> {
+    let logs = state.client_logs.lock().await;
+    Ok(logs.clone())
 }
 
 fn find_client_binary() -> Result<std::path::PathBuf, String> {
@@ -473,4 +521,50 @@ fn servers_path() -> std::path::PathBuf {
     storage::installations_dir()
         .join("default")
         .join("servers.json")
+}
+
+#[tauri::command]
+pub async fn load_installations(
+    state: State<'_, AppState>,
+) -> Result<InstallationsResult, InstallationError> {
+    let _guard = state.installations_lock.lock().await;
+    installations::load_installations().await
+}
+
+#[tauri::command]
+pub async fn create_installation(
+    state: State<'_, AppState>,
+    payload: InstallationDraft,
+) -> Result<Installation, InstallationError> {
+    let _guard = state.installations_lock.lock().await;
+    installations::create_installation(payload).await
+}
+
+#[tauri::command]
+pub async fn delete_installation(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), InstallationError> {
+    let _guard = state.installations_lock.lock().await;
+    installations::delete_installation(id).await
+}
+
+#[tauri::command]
+pub async fn duplicate_installation(
+    state: State<'_, AppState>,
+    old_id: String,
+    payload: InstallationDraft,
+) -> Result<Installation, InstallationError> {
+    let _guard = state.installations_lock.lock().await;
+    installations::duplicate_installation(old_id, payload).await
+}
+
+#[tauri::command]
+pub async fn edit_installation(
+    state: State<'_, AppState>,
+    id: String,
+    payload: InstallationDraft,
+) -> Result<Installation, InstallationError> {
+    let _guard = state.installations_lock.lock().await;
+    installations::edit_installation(id, payload).await
 }

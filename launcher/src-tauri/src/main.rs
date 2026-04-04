@@ -6,6 +6,7 @@ use tokio::sync::Mutex;
 mod auth;
 mod commands;
 mod downloader;
+mod installations;
 mod ping;
 mod settings;
 mod storage;
@@ -13,8 +14,9 @@ mod storage;
 use std::collections::VecDeque;
 
 #[derive(Default)]
-struct AppState {
-    client_logs: VecDeque<String>,
+pub struct AppState {
+    pub client_logs: Mutex<VecDeque<String>>,
+    pub installations_lock: Mutex<()>,
 }
 
 fn main() {
@@ -24,9 +26,10 @@ fn main() {
     }
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             storage::ensure_dirs();
-            app.manage(Mutex::new(AppState::default()));
+            app.manage(AppState::default());
             Ok(())
         })
         .plugin(tauri_plugin_shell::init())
@@ -50,6 +53,12 @@ fn main() {
             commands::ping_server,
             commands::load_servers,
             commands::save_servers,
+            commands::load_installations,
+            commands::create_installation,
+            commands::delete_installation,
+            commands::duplicate_installation,
+            commands::edit_installation,
+            commands::get_downloaded_versions,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Pomme launcher");

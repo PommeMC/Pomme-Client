@@ -1,12 +1,16 @@
-import { InstallationDialogProps } from "../components/dialogs/InstallationDialog.tsx";
+import { AlertDialogProps } from "../components/dialogs/AlertDialog.tsx";
 import { ConfirmDialogProps } from "../components/dialogs/ConfirmDialog.tsx";
+import { InstallationDialogProps } from "../components/dialogs/InstallationDialog.tsx";
 
 export type Page = "home" | "installations" | "servers" | "friends" | "mods" | "news" | "settings";
+
+export type LaunchingStatus = null | "checking_assets" | "launching" | "installing";
 
 // dialog_name: typeof props
 type DialogMap = {
   installation: InstallationDialogProps;
   confirm_dialog: ConfirmDialogProps;
+  alert_dialog: AlertDialogProps;
 };
 
 export type OpenedDialog =
@@ -28,11 +32,25 @@ export interface Installation {
   id: string;
   name: string;
   version: string;
-  lastPlayed: string | null;
+  last_played: number | null;
+  created_at: number;
   directory: string;
   width: number;
   height: number;
+  is_latest: boolean;
 }
+
+export type InstallationError =
+  | { kind: "InvalidName" }
+  | { kind: "NameTooLong"; detail: number }
+  | { kind: "InvalidPath" }
+  | { kind: "InvalidCharacter"; detail: string }
+  | { kind: "ReservedName"; detail: string }
+  | { kind: "DirectoryAlreadyExists" }
+  | { kind: "InstallNotFound"; detail: string }
+  | { kind: "Io"; detail: string }
+  | { kind: "Json"; detail: string }
+  | { kind: "Other"; detail: string };
 
 export interface GameVersion {
   id: string;
