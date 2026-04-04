@@ -37,6 +37,7 @@ function App() {
     setVersions,
     downloadedVersions,
     setLaunchingStatus,
+    setLaunchedInstalls,
     setAuthLoading,
     setStatus,
     setNews,
@@ -204,24 +205,24 @@ function App() {
     const unlisten = await listen<{
       code: number | null;
       signal: number | null;
-      last_line: string | null;
+      stderr: string[];
+      windows: boolean;
     }>("game_exited", (event) => {
-      const { code, signal, last_line } = event.payload;
-      const SIGNAL_NAMES: Record<number, string> = {
-        4: "SIGILL",
-        6: "SIGABRT",
-        7: "SIGBUS",
-        8: "SIGFPE",
-        11: "SIGSEGV",
-        16: "SIGSTKFLT",
-      };
+      const { code, signal, stderr, windows } = event.payload;
       const reason =
-        signal !== null ? `signal ${SIGNAL_NAMES[signal] ?? signal}` : `code ${code ?? "unknown"}`;
+        signal !== null
+          ? `signal ${signal}`
+          : code !== null
+            ? windows && code >>> 0 >= 0xc0000000
+              ? `code 0x${(code >>> 0).toString(16).toUpperCase()}`
+              : `code ${code}`
+            : "unknown";
+      setLaunchedInstalls((prev) => prev.filter((id) => id !== activeInstall.id));
       setOpenedDialog({
         name: "alert_dialog",
         props: {
           title: `Game exited (${reason})`,
-          message: last_line ?? "The game exited unexpectedly.",
+          message: stderr.length > 0 ? stderr.join("\n") : "The game exited unexpectedly.",
         },
       });
       unlisten();
@@ -236,6 +237,13 @@ function App() {
         debugEnabled: launcherSettings.launchWithConsole || null,
         version: activeInstall.version,
         install_id: activeInstall.id,
+      });
+      setLaunchedInstalls((prev) => {
+        const next = [...prev, activeInstall.id];
+        if (activeInstall.is_latest) {
+          next.push("latest-release", "latest-snapshot");
+        }
+        return [...new Set(next)]; // dedupe
       });
       setStatus(result);
     } catch (e) {
@@ -257,6 +265,7 @@ function App() {
     account?.uuid,
     server,
     launcherSettings.launchWithConsole,
+    setLaunchedInstalls,
   ]);
 
   const dialogDragStartedInside = useRef(false);
@@ -314,13 +323,14 @@ function App() {
   };
 
   useEffect(() => {
-    invoke<Installation[]>("load_installations")
-      .then((installs) => {
-        setInstallations(installs);
-        setActiveInstall((prev) => prev ?? installs[0]);
+    invoke<{ installations: Installation[]; running: string[] }>("load_installations")
+      .then(({ installations, running }) => {
+        setInstallations(installations);
+        setActiveInstall((prev) => prev ?? installations[0]);
+        setLaunchedInstalls(running);
       })
       .catch((e) => setStatus("Failed to load installations: " + e));
-  }, [setInstallations, setActiveInstall, setStatus]);
+  }, [setInstallations, setActiveInstall, setStatus, setLaunchedInstalls]);
 
   useEffect(() => {
     invoke<string[]>("get_downloaded_versions")

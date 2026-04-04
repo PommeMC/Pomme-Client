@@ -9,7 +9,7 @@ static DATA_DIR: LazyLock<PathBuf> = {
     })
 };
 
-/// `.pomc/`
+/// `.pomme/`
 pub fn data_dir() -> &'static Path {
     &DATA_DIR
 }
@@ -33,55 +33,55 @@ pub fn ensure_dirs() {
     ensure_file(&accounts_file(), "[]");
 }
 
-/// `.pomc/assets/`
+/// `.pomme/assets/`
 pub fn assets_dir() -> PathBuf {
     data_dir().join("assets")
 }
-/// `.pomc/assets/indexes/`
+/// `.pomme/assets/indexes/`
 pub fn indexes_dir() -> PathBuf {
     assets_dir().join("indexes")
 }
-/// `.pomc/assets/objects/`
+/// `.pomme/assets/objects/`
 pub fn objects_dir() -> PathBuf {
     assets_dir().join("objects")
 }
 
-/// `.pomc/pomme_assets/`
+/// `.pomme/pomme_assets/`
 pub fn pomme_assets_dir() -> PathBuf {
     data_dir().join("pomme_assets")
 }
 
-/// `.pomc/versions/`
+/// `.pomme/versions/`
 pub fn versions_dir() -> PathBuf {
     data_dir().join("versions")
 }
-/// `.pomc/versions/{version}/`
+/// `.pomme/versions/{version}/`
 pub fn version_dir(version: &str) -> PathBuf {
     versions_dir().join(version)
 }
-/// `.pomc/versions/{version}/{version}.jar`
+/// `.pomme/versions/{version}/{version}.jar`
 pub fn version_jar(version: &str) -> PathBuf {
     version_dir(version).join(format!("{version}.jar"))
 }
-/// `.pomc/versions/{version}/extracted/`
+/// `.pomme/versions/{version}/extracted/`
 pub fn version_extracted_dir(version: &str) -> PathBuf {
     version_dir(version).join("extracted")
 }
-/// `.pomc/versions/{version}/extracted/.extracted`
+/// `.pomme/versions/{version}/extracted/.extracted`
 pub fn version_extracted_marker(version: &str) -> PathBuf {
     version_extracted_dir(version).join(".extracted")
 }
 
-/// `.pomc/installations/`
+/// `.pomme/installations/`
 pub fn installations_dir() -> PathBuf {
     data_dir().join("installations")
 }
 
-/// `.pomc/settings.json`
+/// `.pomme/settings.json`
 pub fn settings_file() -> PathBuf {
     data_dir().join("settings.json")
 }
-/// `.pomc/accounts.json`
+/// `.pomme/accounts.json`
 pub fn accounts_file() -> PathBuf {
     data_dir().join("accounts.json")
 }

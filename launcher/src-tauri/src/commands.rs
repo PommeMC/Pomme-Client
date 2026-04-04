@@ -1,4 +1,6 @@
-use crate::installations::{Installation, InstallationDraft, InstallationError};
+use crate::installations::{
+    Installation, InstallationDraft, InstallationError, InstallationsResult,
+};
 use crate::settings::LauncherSettings;
 use crate::{AppState, installations, storage};
 
@@ -364,7 +366,7 @@ pub async fn launch_game(
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let tx2 = tx.clone();
 
-    let last_error_line = Arc::new(Mutex::new(None::<String>));
+    let stderr_log = Arc::new(Mutex::new(Vec::<String>::new()));
 
     tokio::spawn(async move {
         let mut reader = BufReader::new(stdout).lines();
@@ -373,16 +375,17 @@ pub async fn launch_game(
         }
     });
 
+    let stderr_log_writer = stderr_log.clone();
     tokio::spawn(async move {
         let mut reader = BufReader::new(stderr).lines();
         while let Ok(Some(line)) = reader.next_line().await {
+            stderr_log_writer.lock().await.push(line.clone());
             let _ = tx2.send(line);
         }
     });
 
     let app_emitter = app.clone();
     let app_handle = app.clone();
-    let last_error_writer = last_error_line.clone();
     tokio::spawn(async move {
         while let Some(line) = rx.recv().await {
             let _ = app_emitter.emit(
@@ -398,9 +401,6 @@ pub async fn launch_game(
             if logs.len() > 10_000 {
                 logs.pop_front();
             }
-            if line.contains(" ERROR ") {
-                *last_error_writer.lock().await = Some(line);
-            }
         }
     });
 
@@ -412,7 +412,7 @@ pub async fn launch_game(
             .expect("client process encountered an error");
 
         if !status.success() {
-            let last = last_error_line.lock().await.clone();
+            let stderr = stderr_log.lock().await.clone();
 
             #[cfg(unix)]
             let signal = status.signal();
@@ -424,7 +424,8 @@ pub async fn launch_game(
                 serde_json::json!({
                     "code": status.code(),
                     "signal": signal,
-                    "last_line": last,
+                    "stderr": stderr,
+                    "windows": cfg!(windows),
                 }),
             );
         }
@@ -525,7 +526,7 @@ fn servers_path() -> std::path::PathBuf {
 #[tauri::command]
 pub async fn load_installations(
     state: State<'_, AppState>,
-) -> Result<Vec<Installation>, InstallationError> {
+) -> Result<InstallationsResult, InstallationError> {
     let _guard = state.installations_lock.lock().await;
     installations::load_installations().await
 }

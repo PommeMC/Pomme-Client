@@ -1,5 +1,5 @@
 import { BiSolidDownload } from "react-icons/bi";
-import { HiChevronDown, HiCube, HiPlay } from "react-icons/hi2";
+import { HiChevronDown, HiCube, HiPlay, HiStop } from "react-icons/hi2";
 import SkinRunner from "../components/SkinRunner";
 import { useDropdown } from "../lib/hooks";
 import { useAppStateContext } from "../lib/state";
@@ -22,6 +22,7 @@ export default function Homepage({ handleLaunch, openPatchNote }: HomepageProps)
     downloadProgress,
     skinUrl,
     setOpenedDialog,
+    launchedInstalls,
   } = useAppStateContext();
 
   const { ref: versionDropdownRef, ...versionDropdown } = useDropdown();
@@ -37,34 +38,46 @@ export default function Homepage({ handleLaunch, openPatchNote }: HomepageProps)
       </div>
 
       <div className="launch-bar">
-        <button
-          className={`play-button ${
-            launchingStatus === "installing" || launchingStatus === "checking_assets"
-              ? "installing"
-              : launchingStatus === "launching"
-                ? "launching"
-                : ""
-          }`}
-          onClick={handleLaunch}
-          disabled={launchingStatus !== null}
-        >
-          {launchingStatus === null && downloadedVersions.has(activeInstall?.version ?? "") ? (
-            <HiPlay className="play-icon" />
-          ) : (
-            <BiSolidDownload className="download-icon" />
-          )}
-          <span className="play-text">
-            {launchingStatus === null
-              ? downloadedVersions.has(activeInstall?.version ?? "")
-                ? "PLAY"
-                : "INSTALL"
-              : launchingStatus === "checking_assets"
-                ? "Checking assets..."
-                : launchingStatus === "installing"
-                  ? "Installing..."
-                  : "Launching..."}
-          </span>
-        </button>
+        {activeInstall && launchedInstalls.includes(activeInstall.id) ? (
+          <button
+            className="kill-button"
+            onClick={() => {
+              // TODO: handle kill
+            }}
+          >
+            <HiStop className="play-icon" />
+            <span className="play-text">KILL</span>
+          </button>
+        ) : (
+          <button
+            className={`play-button ${
+              launchingStatus === "installing" || launchingStatus === "checking_assets"
+                ? "installing"
+                : launchingStatus === "launching"
+                  ? "launching"
+                  : ""
+            }`}
+            onClick={handleLaunch}
+            disabled={launchingStatus !== null}
+          >
+            {launchingStatus === null && downloadedVersions.has(activeInstall?.version ?? "") ? (
+              <HiPlay className="play-icon" />
+            ) : (
+              <BiSolidDownload className="download-icon" />
+            )}
+            <span className="play-text">
+              {launchingStatus === null
+                ? downloadedVersions.has(activeInstall?.version ?? "")
+                  ? "PLAY"
+                  : "INSTALL"
+                : launchingStatus === "checking_assets"
+                  ? "Checking assets..."
+                  : launchingStatus === "installing"
+                    ? "Installing..."
+                    : "Launching..."}
+            </span>
+          </button>
+        )}
       </div>
 
       <div className="version-badge-wrapper" ref={versionDropdownRef}>

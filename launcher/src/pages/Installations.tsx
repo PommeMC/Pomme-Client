@@ -8,6 +8,7 @@ import {
   HiPencil,
   HiPlay,
   HiPlus,
+  HiStop,
   HiTrash,
 } from "react-icons/hi2";
 import { formatRelativeDate } from "../lib/helpers.ts";
@@ -30,6 +31,7 @@ export default function InstallationsPage({
     setActiveInstall,
     installations,
     setInstallations,
+    launchedInstalls,
     setPage,
     setOpenedDialog,
     downloadedVersions,
@@ -76,10 +78,21 @@ export default function InstallationsPage({
             <span className="install-card-played">
               {inst.last_played ? formatRelativeDate(inst.last_played) : "Never"}
             </span>
-            {downloadedVersions.has(inst.version) ? (
+            {launchedInstalls.includes(inst.id) ? (
+              <button
+                className="install-kill-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // TODO: handle kill
+                }}
+              >
+                <HiStop /> Kill
+              </button>
+            ) : downloadedVersions.has(inst.version) ? (
               <button
                 className="install-play-btn"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setActiveInstall(inst);
                   setPage("home");
                   handleLaunch();
@@ -90,7 +103,8 @@ export default function InstallationsPage({
             ) : (
               <button
                 className="install-download-btn"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setActiveInstall(inst);
                   setPage("home");
                   ensureAssets(inst.version);
@@ -101,7 +115,8 @@ export default function InstallationsPage({
             )}
             <button
               className="install-folder-btn"
-              onClick={async () => {
+              onClick={async (e) => {
+                e.stopPropagation();
                 await revealItemInDir(inst.directory);
               }}
             >
@@ -110,7 +125,8 @@ export default function InstallationsPage({
             <div className="install-card-actions">
               <button
                 className="install-action-btn"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setOpenedDialog({
                     name: "installation",
                     props: { type: "edit", installation: { ...inst } },
@@ -124,7 +140,8 @@ export default function InstallationsPage({
               <button
                 className="install-action-btn"
                 title="Duplicate"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   const dup = {
                     ...inst,
                     id: "",
@@ -144,7 +161,8 @@ export default function InstallationsPage({
                 <button
                   className="install-action-btn delete"
                   title="Delete"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setOpenedDialog({
                       name: "confirm_dialog",
                       props: {

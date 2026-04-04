@@ -6,6 +6,7 @@ export const useInstallations = () => {
   const [installations, setInstallations] = useState<Installation[]>([]);
   const [activeInstall, setActiveInstall] = useState<Installation | null>(null);
   const [selectedInstall, setSelectedInstall] = useState<Installation | null>(null);
+  const [launchedInstalls, setLaunchedInstalls] = useState<string[]>([]);
 
   const invokeCreateInstallation = async (payload: Installation): Promise<Installation> => {
     return invoke<Installation>("create_installation", { payload });
@@ -43,5 +44,7 @@ export const useInstallations = () => {
     setActiveInstall,
     selectedInstall,
     setSelectedInstall,
+    launchedInstalls,
+    setLaunchedInstalls,
   };
 };

@@ -733,6 +733,8 @@ body {
 .launch-bar {
   display: flex;
   justify-content: center;
+  align-items: center;
+  gap: 10px;
   margin-top: -30px;
   position: relative;
   z-index: 2;
@@ -914,6 +916,58 @@ body {
   50% {
     opacity: 0.5;
   }
+}
+
+.kill-button {
+  width: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 14px 32px;
+  background: var(--glass);
+  backdrop-filter: blur(var(--glass-blur));
+  border: 2px solid rgba(231, 76, 60, 0.4);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 20px rgba(231, 76, 60, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+.kill-button::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(231, 76, 60, 0.08), transparent);
+  transition: left 0.6s;
+}
+
+.kill-button:hover::after {
+  left: 120%;
+}
+
+.kill-button:hover {
+  transform: translateY(-1px);
+  background: rgba(231, 76, 60, 0.08);
+  border-color: rgba(231, 76, 60, 0.6);
+  box-shadow: 0 6px 32px rgba(231, 76, 60, 0.2);
+}
+
+.kill-button:active {
+  transform: translateY(0);
+}
+
+.kill-button .play-icon {
+  color: var(--text-error);
+}
+
+.kill-button .play-text {
+  color: var(--text-error);
 }
 
 .version-badge-wrapper {
@@ -1788,6 +1842,31 @@ body {
 .install-play-btn:hover,
 .install-download-btn:hover {
   box-shadow: 0 2px 12px var(--accent-glow);
+  transform: translateY(-1px);
+}
+
+.install-kill-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  background: rgba(231, 76, 60, 0.1);
+  border: 1px solid rgba(231, 76, 60, 0.2);
+  border-radius: 6px;
+  color: var(--text-error);
+
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.install-kill-btn:hover {
+  background: rgba(231, 76, 60, 0.2);
+  border-color: rgba(231, 76, 60, 0.4);
+  box-shadow: 0 2px 12px rgba(231, 76, 60, 0.2);
   transform: translateY(-1px);
 }
 

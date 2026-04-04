@@ -284,6 +284,10 @@ impl Installation {
             is_latest: true,
         })
     }
+
+    pub fn is_launched(&self) -> bool {
+        self.directory.0.join("launched.marker").exists()
+    }
 }
 impl TryFrom<InstallationDraft> for Installation {
     type Error = InstallationError;
@@ -332,7 +336,13 @@ impl From<Installation> for InstallationDraft {
 //
 //
 
-pub async fn load_installations() -> Result<Vec<Installation>, InstallationError> {
+#[derive(Serialize)]
+pub struct InstallationsResult {
+    pub installations: Vec<Installation>,
+    pub running: Vec<Id>,
+}
+
+pub async fn load_installations() -> Result<InstallationsResult, InstallationError> {
     let installs = {
         let _lock = registry::lock();
 
@@ -368,7 +378,17 @@ pub async fn load_installations() -> Result<Vec<Installation>, InstallationError
     for install in &installs {
         fs::ensure_install_fs(install)?;
     }
-    Ok(installs)
+
+    let running = installs
+        .iter()
+        .filter(|i| i.is_launched())
+        .map(|i| i.id.clone())
+        .collect();
+
+    Ok(InstallationsResult {
+        installations: installs,
+        running,
+    })
 }
 
 pub async fn create_installation(

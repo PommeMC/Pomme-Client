@@ -47,7 +47,7 @@ fn main() {
 
     if !SUPPORTED_VERSIONS.contains(&version) {
         eprintln!(
-            "{version} is not currently supported. Supported versions: {:#?}",
+            "{version} is not currently supported.\nSupported versions: {:#?}",
             SUPPORTED_VERSIONS
         );
         if !cfg!(debug_assertions) && !args.dev {
@@ -62,10 +62,18 @@ fn main() {
         args.game_dir.as_deref(),
     );
 
+    let _marker = match dirs::LaunchedMarker::new(&data_dirs.game_dir) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    };
+
     let log_dir = data_dirs.game_dir.join("logs");
     std::fs::create_dir_all(&log_dir).unwrap();
     if let Err(e) = logging::rotate(&log_dir) {
-        eprintln!("Failed to rotate logs: {e}. latest.log will probably be overwritten.");
+        println!("Error: Failed to rotate logs: {e}. latest.log will probably be overwritten.");
     }
     let _guard = logging::init(&log_dir);
 

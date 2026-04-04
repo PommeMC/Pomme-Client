@@ -25,7 +25,6 @@
         "height": 720,
         "resizable": true,
         "decorations": false,
-        "icon": "icons/icon.png",
         "transparent": true,
         "visible": true
       }
