@@ -1549,6 +1549,7 @@ impl ApplicationHandler for App {
                                     self.player.health,
                                     self.player.food,
                                     self.player.air_supply,
+                                    self.player.eyes_in_water,
                                     self.player.inventory.hotbar_slots(),
                                     renderer.is_first_person(),
                                     debug.as_ref(),
