@@ -530,6 +530,15 @@ impl App {
                         }
                     }
                 }
+                NetworkEvent::PlayerExperience {
+                    progress,
+                    level,
+                    total,
+                } => {
+                    self.player.experience_progress = progress;
+                    self.player.experience_level = level;
+                    self.player.total_experience = total;
+                }
                 NetworkEvent::InventoryContent { items } => {
                     self.player.inventory.set_contents(items);
                 }
@@ -1549,6 +1558,9 @@ impl ApplicationHandler for App {
                                     self.player.health,
                                     self.player.food,
                                     self.player.air_supply,
+                                    self.player.experience_level,
+                                    self.player.experience_progress,
+                                    self.player.game_mode,
                                     self.player.inventory.hotbar_slots(),
                                     renderer.is_first_person(),
                                     debug.as_ref(),

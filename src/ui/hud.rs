@@ -1,7 +1,7 @@
 use azalea_core::position::BlockPos;
 use azalea_inventory::ItemStack;
 
-use super::common::{WHITE, push_item_count};
+use super::common::{FONT_SIZE, WHITE, push_item_count};
 use crate::player::inventory::item_resource_name;
 use crate::renderer::pipelines::menu_overlay::{MenuElement, SpriteId};
 
@@ -38,6 +38,8 @@ const SELECTION_H: f32 = 24.0;
 const SLOT_STRIDE: f32 = 20.0;
 const ICON_SIZE: f32 = 9.0;
 const ICON_STRIDE: f32 = 8.0;
+const XP_BAR_W: f32 = 182.0;
+const XP_BAR_H: f32 = 5.0;
 
 pub fn max_gui_scale(screen_w: f32, screen_h: f32) -> u32 {
     let mut scale = 1;
@@ -65,6 +67,9 @@ pub fn build_hud(
     health: f32,
     food: u32,
     air_supply: i32,
+    experience_level: i32,
+    experience_progress: f32,
+    game_mode: u8,
     hotbar: &[ItemStack],
     first_person: bool,
     debug: Option<&DebugInfo<'_>>,
@@ -128,10 +133,11 @@ pub fn build_hud(
         }
     }
 
+    let status_bar_y = hotbar_y - (XP_BAR_H + 1.0 + 2.0) * gs;
     build_status_bar(
         elements,
         hotbar_x,
-        hotbar_y - 2.0 * gs,
+        status_bar_y,
         health,
         false,
         SpriteId::HeartContainer,
@@ -142,7 +148,7 @@ pub fn build_hud(
     build_status_bar(
         elements,
         hotbar_x + hotbar_w,
-        hotbar_y - 2.0 * gs,
+        status_bar_y,
         food as f32,
         true,
         SpriteId::FoodEmpty,
@@ -151,8 +157,70 @@ pub fn build_hud(
         gs,
     );
 
+    if game_mode == 0 || game_mode == 2 {
+        let xp_w = XP_BAR_W * gs;
+        let xp_h = XP_BAR_H * gs;
+        let xp_x = cx - xp_w / 2.0;
+        let xp_y = hotbar_y - xp_h - 2.0 * gs;
+
+        elements.push(MenuElement::Image {
+            x: xp_x,
+            y: xp_y,
+            w: xp_w,
+            h: xp_h,
+            sprite: SpriteId::ExperienceBarBackground,
+            tint: WHITE,
+        });
+
+        let fill_px = (experience_progress.clamp(0.0, 1.0) * 183.0) as i32;
+        if fill_px > 0 {
+            let fill_w = fill_px as f32 * gs;
+            elements.push(MenuElement::ScissorPush {
+                x: xp_x,
+                y: xp_y,
+                w: fill_w,
+                h: xp_h,
+            });
+            elements.push(MenuElement::Image {
+                x: xp_x,
+                y: xp_y,
+                w: xp_w,
+                h: xp_h,
+                sprite: SpriteId::ExperienceBarProgress,
+                tint: WHITE,
+            });
+            elements.push(MenuElement::ScissorPop);
+        }
+
+        if experience_level > 0 {
+            let text = experience_level.to_string();
+            let fs = FONT_SIZE * gs;
+            let ty = xp_y - 6.0 * gs;
+            let shadow = [0.0, 0.0, 0.0, 1.0];
+            let main = [0.5, 1.0, 0.125, 1.0];
+            for (dx, dy) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)] {
+                elements.push(MenuElement::Text {
+                    x: cx + dx * gs,
+                    y: ty + dy * gs,
+                    text: text.clone(),
+                    scale: fs,
+                    color: shadow,
+                    centered: true,
+                });
+            }
+            elements.push(MenuElement::Text {
+                x: cx,
+                y: ty,
+                text,
+                scale: fs,
+                color: main,
+                centered: true,
+            });
+        }
+    }
+
     if air_supply < crate::player::MAX_AIR_SUPPLY {
-        let bubble_y = hotbar_y - 2.0 * gs - ICON_SIZE * gs - 1.0 * gs;
+        let bubble_y = status_bar_y - ICON_SIZE * gs - 1.0 * gs;
         let bubbles = (air_supply.max(0) as f32 / 30.0).ceil() as u8;
         let stride = ICON_STRIDE * gs;
         let icon_size = ICON_SIZE * gs;

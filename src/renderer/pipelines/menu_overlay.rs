@@ -1299,6 +1299,8 @@ pub enum SpriteId {
     FoodEmpty,
     FoodFull,
     FoodHalf,
+    ExperienceBarBackground,
+    ExperienceBarProgress,
     InventoryBackground,
     EmptyHelmet,
     EmptyChestplate,
@@ -1416,6 +1418,16 @@ fn build_sprite_atlas(
         (
             SpriteId::FoodHalf,
             "minecraft/textures/gui/sprites/hud/food_half.png",
+            0.0,
+        ),
+        (
+            SpriteId::ExperienceBarBackground,
+            "minecraft/textures/gui/sprites/hud/experience_bar_background.png",
+            0.0,
+        ),
+        (
+            SpriteId::ExperienceBarProgress,
+            "minecraft/textures/gui/sprites/hud/experience_bar_progress.png",
             0.0,
         ),
         (
