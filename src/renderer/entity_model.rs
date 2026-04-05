@@ -444,9 +444,11 @@ fn generate_cube_vertices(
         for &i in &[0usize, 1, 2, 0, 2, 3] {
             vertices.push(ChunkVertex {
                 position: face.positions[i],
-                tex_coords: uvs[i],
-                light: 1.0,
-                tint: crate::renderer::chunk::mesher::PACKED_WHITE,
+                tex_coords: crate::renderer::chunk::mesher::pack_uv(uvs[i][0], uvs[i][1]),
+                light_tint: crate::renderer::chunk::mesher::pack_light_tint(
+                    1.0,
+                    crate::renderer::chunk::mesher::PACKED_WHITE_SHIFTED,
+                ),
             });
         }
     }

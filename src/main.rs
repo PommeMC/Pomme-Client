@@ -1,5 +1,6 @@
 mod args;
 mod assets;
+mod benchmark;
 mod dirs;
 mod discord;
 mod entity;

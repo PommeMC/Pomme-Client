@@ -142,6 +142,8 @@ struct App {
     item_entity_store: ItemEntityStore,
     resource_packs: crate::resource_pack::ResourcePackManager,
     pending_pack_download: Option<std::thread::JoinHandle<PackDownloadResult>>,
+    benchmark: Option<crate::benchmark::Benchmark>,
+    benchmark_result: Option<crate::benchmark::BenchmarkResult>,
 }
 
 struct PackDownloadResult {
@@ -260,6 +262,8 @@ impl App {
             position_send_counter: 0,
             resource_packs,
             pending_pack_download: None,
+            benchmark: None,
+            benchmark_result: None,
         }
     }
 
@@ -972,10 +976,19 @@ impl ApplicationHandler for App {
             return;
         }
 
+        let window_icon = {
+            let png = include_bytes!("../../assets/icon.png");
+            let img = image::load_from_memory(png).expect("failed to decode icon");
+            let rgba = img.to_rgba8();
+            let (w, h) = (rgba.width(), rgba.height());
+            winit::window::Icon::from_rgba(rgba.into_raw(), w, h).ok()
+        };
+
         let window_attrs = Window::default_attributes()
             .with_title("Pomme")
             .with_inner_size(winit::dpi::LogicalSize::new(854, 480))
-            .with_visible(false);
+            .with_visible(false)
+            .with_window_icon(window_icon);
 
         let window = match event_loop.create_window(window_attrs) {
             Ok(w) => Arc::new(w),
@@ -1542,6 +1555,107 @@ impl ApplicationHandler for App {
                                     self.menu.gui_scale_setting,
                                 );
 
+                                if let Some(ref mut bench) = self.benchmark {
+                                    let entity_count = self.entity_store.living.len() as u32;
+                                    let done = bench.record_frame(
+                                        dt * 1000.0,
+                                        &renderer.last_timings,
+                                        renderer.loaded_chunk_count(),
+                                        entity_count,
+                                    );
+                                    let progress = bench.progress();
+                                    elements.push(MenuElement::Rect {
+                                        x: sw * 0.25,
+                                        y: 16.0,
+                                        w: sw * 0.5,
+                                        h: 8.0,
+                                        corner_radius: 4.0,
+                                        color: [1.0, 1.0, 1.0, 0.1],
+                                    });
+                                    elements.push(MenuElement::Rect {
+                                        x: sw * 0.25,
+                                        y: 16.0,
+                                        w: sw * 0.5 * progress,
+                                        h: 8.0,
+                                        corner_radius: 4.0,
+                                        color: [0.294, 0.871, 0.498, 0.8],
+                                    });
+                                    elements.push(MenuElement::Text {
+                                        x: sw / 2.0,
+                                        y: 28.0,
+                                        text: format!("Benchmarking... {:.0}%", progress * 100.0),
+                                        scale: 8.0 * gs,
+                                        color: [1.0, 1.0, 1.0, 1.0],
+                                        centered: true,
+                                    });
+                                    if done {
+                                        let bench = self.benchmark.take().unwrap();
+                                        self.benchmark_result =
+                                            Some(bench.finish(&self.data_dirs.game_dir));
+                                    }
+                                }
+
+                                if let Some(ref result) = self.benchmark_result {
+                                    let fs = 8.0 * gs;
+                                    let cx = sw / 2.0;
+                                    let by = sh / 2.0 - 90.0;
+                                    common::push_overlay(&mut elements, sw, sh, 0.5);
+                                    elements.push(MenuElement::Text {
+                                        x: cx,
+                                        y: by,
+                                        text: "Benchmark Complete".into(),
+                                        scale: fs * 2.0,
+                                        color: [1.0, 1.0, 1.0, 1.0],
+                                        centered: true,
+                                    });
+                                    let lines = [
+                                        format!("GPU: {}", result.gpu),
+                                        format!(
+                                            "{}x{} / RD {} / {} chunks / {} entities",
+                                            result.resolution[0],
+                                            result.resolution[1],
+                                            result.render_distance,
+                                            result.peak_chunk_count,
+                                            result.peak_entity_count,
+                                        ),
+                                        format!("Avg FPS: {:.0}", result.avg_fps),
+                                        format!(
+                                            "Min: {:.0} / Max: {:.0}",
+                                            result.min_fps, result.max_fps
+                                        ),
+                                        format!(
+                                            "Frame: {:.2}ms / P1: {:.2}ms / P99: {:.2}ms",
+                                            result.avg_frame_ms,
+                                            result.p1_frame_ms,
+                                            result.p99_frame_ms
+                                        ),
+                                        format!(
+                                            "Fence: {:.2}ms / Cull: {:.2}ms / Draw: {:.2}ms",
+                                            result.avg_fence_ms,
+                                            result.avg_cull_ms,
+                                            result.avg_draw_ms
+                                        ),
+                                        format!(
+                                            "{} spikes (>{:.0}ms) - Saved to benchmark.json",
+                                            result.spike_count, 8.0
+                                        ),
+                                    ];
+                                    for (i, line) in lines.iter().enumerate() {
+                                        elements.push(MenuElement::Text {
+                                            x: cx,
+                                            y: by + fs * 2.0 + 10.0 + i as f32 * (fs + 4.0),
+                                            text: line.clone(),
+                                            scale: fs,
+                                            color: [0.8, 0.85, 0.9, 1.0],
+                                            centered: true,
+                                        });
+                                    }
+                                    if self.input.escape_pressed() || self.input.left_just_pressed()
+                                    {
+                                        self.benchmark_result = None;
+                                    }
+                                }
+
                                 if self.options_from_game {
                                     let menu_input = MenuInput {
                                         cursor: self.input.cursor_pos(),
@@ -1760,6 +1874,19 @@ impl ApplicationHandler for App {
                                 }
                                 PauseAction::Disconnect => {
                                     self.disconnect_to_menu(None);
+                                }
+                                PauseAction::Benchmark => {
+                                    if let Some(renderer) = &self.renderer {
+                                        self.benchmark = Some(crate::benchmark::Benchmark::new(
+                                            renderer.gpu_name(),
+                                            renderer.screen_width(),
+                                            renderer.screen_height(),
+                                            self.menu.render_distance,
+                                        ));
+                                        self.benchmark_result = None;
+                                        self.paused = false;
+                                        self.apply_cursor_grab();
+                                    }
                                 }
                                 PauseAction::None => {}
                             }

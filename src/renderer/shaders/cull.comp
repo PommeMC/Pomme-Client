@@ -8,7 +8,7 @@ struct ChunkMeta {
     uint index_count;
     uint first_index;
     int vertex_offset;
-    uint _pad;
+    uint visibility;
 };
 
 struct DrawCmd {
@@ -64,5 +64,5 @@ void main() {
     draws[slot].instance_count = 1u;
     draws[slot].first_index = m.first_index;
     draws[slot].vertex_offset = m.vertex_offset;
-    draws[slot].first_instance = 0u;
+    draws[slot].first_instance = m.visibility;
 }

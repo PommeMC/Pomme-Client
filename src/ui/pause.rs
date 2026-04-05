@@ -11,6 +11,7 @@ pub enum PauseAction {
     Resume,
     Disconnect,
     Options,
+    Benchmark,
 }
 
 pub fn build_pause_menu(
@@ -134,7 +135,7 @@ pub fn build_pause_menu(
     {
         action = PauseAction::Options;
     }
-    common::push_button(
+    if common::push_button(
         elements,
         cursor,
         col2_x,
@@ -143,9 +144,12 @@ pub fn build_pause_menu(
         btn_h,
         gs,
         fs,
-        "Player Reporting",
-        false,
-    );
+        "Benchmark",
+        true,
+    ) && clicked
+    {
+        action = PauseAction::Benchmark;
+    }
 
     if common::push_button(
         elements,

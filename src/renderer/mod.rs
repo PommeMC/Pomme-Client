@@ -529,6 +529,7 @@ impl Renderer {
             self.width,
             self.height,
         );
+
         self.swapchain_dirty = false;
         Ok(())
     }
@@ -921,7 +922,10 @@ impl Renderer {
         let acquire_ms = t_acquire.elapsed().as_secs_f32() * 1000.0;
 
         if matches!(mode, RenderMode::World { .. }) {
-            let uniform = CameraUniform::from_camera(&self.camera);
+            let uniform = CameraUniform::new(
+                &self.camera,
+                [clear_color[0], clear_color[1], clear_color[2]],
+            );
             self.chunk_pipeline.update_camera(frame, &uniform);
             self.block_overlay_pipeline.update_camera(frame, &uniform);
             self.entity_renderer.update_camera(frame, &uniform);
@@ -1168,6 +1172,7 @@ impl Renderer {
             }
 
             self.ctx.device.cmd_end_render_pass(cmd);
+
             self.ctx.device.end_command_buffer(cmd)?;
 
             let wait_semaphores = [image_available];

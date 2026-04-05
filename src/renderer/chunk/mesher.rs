@@ -14,9 +14,8 @@ use crate::world::chunk::{self, ChunkStore};
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ChunkVertex {
     pub position: [f32; 3],
-    pub tex_coords: [f32; 2],
-    pub light: f32,
-    pub tint: u32,
+    pub tex_coords: [u16; 2],
+    pub light_tint: u32,
 }
 
 impl ChunkVertex {
@@ -30,7 +29,7 @@ impl ChunkVertex {
         }
     }
 
-    pub fn attribute_descriptions() -> [ash::vk::VertexInputAttributeDescription; 4] {
+    pub fn attribute_descriptions() -> [ash::vk::VertexInputAttributeDescription; 3] {
         [
             ash::vk::VertexInputAttributeDescription {
                 location: 0,
@@ -41,34 +40,32 @@ impl ChunkVertex {
             ash::vk::VertexInputAttributeDescription {
                 location: 1,
                 binding: 0,
-                format: ash::vk::Format::R32G32_SFLOAT,
+                format: ash::vk::Format::R16G16_UNORM,
                 offset: 12,
             },
             ash::vk::VertexInputAttributeDescription {
                 location: 2,
                 binding: 0,
-                format: ash::vk::Format::R32_SFLOAT,
-                offset: 20,
-            },
-            ash::vk::VertexInputAttributeDescription {
-                location: 3,
-                binding: 0,
                 format: ash::vk::Format::R8G8B8A8_UNORM,
-                offset: 24,
+                offset: 16,
             },
         ]
     }
 }
 
-pub struct ChunkMeshData {
-    pub pos: ChunkPos,
-    pub vertices: Vec<ChunkVertex>,
-    pub indices: Vec<u32>,
+pub fn pack_uv(u: f32, v: f32) -> [u16; 2] {
+    [
+        (u.clamp(0.0, 1.0) * 65535.0 + 0.5) as u16,
+        (v.clamp(0.0, 1.0) * 65535.0 + 0.5) as u16,
+    ]
 }
 
-const WHITE: [f32; 3] = [1.0, 1.0, 1.0];
+pub fn pack_light_tint(light: f32, tint: u32) -> u32 {
+    let l = (light.clamp(0.0, 1.0) * 255.0 + 0.5) as u32;
+    l | (tint & 0xFFFFFF00)
+}
 
-pub const fn pack_tint(rgb: [f32; 3]) -> u32 {
+pub const fn pack_tint_shifted(rgb: [f32; 3]) -> u32 {
     const fn channel(v: f32) -> u32 {
         let c = (v * 255.0 + 0.5) as i32;
         if c < 0 {
@@ -79,10 +76,18 @@ pub const fn pack_tint(rgb: [f32; 3]) -> u32 {
             c as u32
         }
     }
-    channel(rgb[0]) | (channel(rgb[1]) << 8) | (channel(rgb[2]) << 16)
+    (channel(rgb[0]) << 8) | (channel(rgb[1]) << 16) | (channel(rgb[2]) << 24)
 }
 
-pub const PACKED_WHITE: u32 = pack_tint([1.0, 1.0, 1.0]);
+pub const PACKED_WHITE_SHIFTED: u32 = pack_tint_shifted([1.0, 1.0, 1.0]);
+
+pub struct ChunkMeshData {
+    pub pos: ChunkPos,
+    pub vertices: Vec<ChunkVertex>,
+    pub indices: Vec<u32>,
+}
+
+const WHITE: [f32; 3] = [1.0, 1.0, 1.0];
 
 #[derive(Clone, Copy, Debug, Default)]
 pub enum GrassColorModifier {
@@ -115,9 +120,9 @@ impl Default for BiomeClimate {
 
 fn tint_color(tint: Tint, grass: [f32; 3], foliage: [f32; 3]) -> u32 {
     match tint {
-        Tint::None => PACKED_WHITE,
-        Tint::Grass => pack_tint(grass),
-        Tint::Foliage => pack_tint(foliage),
+        Tint::None => PACKED_WHITE_SHIFTED,
+        Tint::Grass => pack_tint_shifted(grass),
+        Tint::Foliage => pack_tint_shifted(foliage),
     }
 }
 
@@ -368,7 +373,7 @@ impl MeshDispatcher {
         self.biome_climate = climate;
     }
 
-    pub fn enqueue(&self, chunk_store: &ChunkStore, pos: ChunkPos, _lod: u32) {
+    pub fn enqueue(&self, chunk_store: &ChunkStore, pos: ChunkPos, lod: u32) {
         let registry = Arc::clone(&self.registry);
         let uv_map = Arc::clone(&self.uv_map);
         let grass_colormap = Arc::clone(&self.grass_colormap);
@@ -412,7 +417,7 @@ impl MeshDispatcher {
                 min_y,
                 height,
             };
-            let mesh = mesh_chunk_snapshot(&snapshot, pos, &registry, &uv_map, 0);
+            let mesh = mesh_chunk_snapshot(&snapshot, pos, &registry, &uv_map, lod);
             let _ = tx.send(mesh);
         });
     }
@@ -680,7 +685,7 @@ fn greedy_mesh_section(
     let transparent_set = std::collections::BTreeSet::new();
     mesher.mesh(&voxels, &occluders, &transparent_set);
 
-    for face_idx in 0..6usize {
+    for face_idx in 0..6 {
         let face = greedy::Face::from(face_idx);
         let dir_shade = face.shade_light();
 
@@ -726,9 +731,11 @@ fn greedy_mesh_section(
                         pos[1] + section_y as f32,
                         pos[2] + world_z as f32,
                     ],
-                    tex_coords: [region.u_min + uv[0] * u_span, region.v_min + uv[1] * v_span],
-                    light: lights[i],
-                    tint,
+                    tex_coords: pack_uv(
+                        region.u_min + uv[0] * u_span,
+                        region.v_min + uv[1] * v_span,
+                    ),
+                    light_tint: pack_light_tint(lights[i], tint),
                 });
             }
 
@@ -1015,7 +1022,7 @@ fn emit_cube_faces(
                 &uvs,
                 lights,
                 region,
-                PACKED_WHITE,
+                PACKED_WHITE_SHIFTED,
             );
             let overlay_region = uv_map.get_region(overlay);
             emit_face(
@@ -1031,7 +1038,11 @@ fn emit_cube_faces(
         } else {
             let is_tinted =
                 !matches!(textures.tint, Tint::None) && (textures.side_overlay.is_none() || i == 0);
-            let face_tint = if is_tinted { tint } else { PACKED_WHITE };
+            let face_tint = if is_tinted {
+                tint
+            } else {
+                PACKED_WHITE_SHIFTED
+            };
             emit_face(
                 vertices, indices, block_pos, &positions, &uvs, lights, region, face_tint,
             );
@@ -1082,9 +1093,9 @@ fn emit_fluid(
     bz: i32,
 ) {
     let (tex_name, tint) = if fluid == "lava" {
-        ("lava_still", PACKED_WHITE)
+        ("lava_still", PACKED_WHITE_SHIFTED)
     } else {
-        ("water_still", pack_tint([0.247, 0.463, 0.894]))
+        ("water_still", pack_tint_shifted([0.247, 0.463, 0.894]))
     };
     let region = uv_map.get_region(tex_name);
 
@@ -1201,19 +1212,18 @@ fn emit_lod_cube(
                     block_pos[1] + positions[i][1] * scale,
                     block_pos[2] + positions[i][2] * scale,
                 ],
-                tex_coords: [
+                tex_coords: pack_uv(
                     region.0.u_min + uvs[i][0] * (region.0.u_max - region.0.u_min),
                     region.0.v_min + uvs[i][1] * (region.0.v_max - region.0.v_min),
-                ],
-                light,
-                tint: region.1,
+                ),
+                light_tint: pack_light_tint(light, region.1),
             });
         }
         indices.extend_from_slice(&[base, base + 1, base + 2, base + 2, base + 3, base]);
     }
 }
 
-const MISSING_TINT: u32 = pack_tint([1.0, 0.0, 1.0]);
+const MISSING_TINT: u32 = pack_tint_shifted([1.0, 0.0, 1.0]);
 
 #[allow(clippy::too_many_arguments)]
 fn emit_missing_cube(
@@ -1242,9 +1252,8 @@ fn emit_missing_cube(
                     block_pos[1] + pos[1],
                     block_pos[2] + pos[2],
                 ],
-                tex_coords: [0.0, 0.0],
-                light,
-                tint: MISSING_TINT,
+                tex_coords: pack_uv(0.0, 0.0),
+                light_tint: pack_light_tint(light, MISSING_TINT),
             });
         }
         indices.extend_from_slice(&[base, base + 1, base + 2, base + 2, base + 3, base]);
@@ -1282,12 +1291,11 @@ fn emit_face(
                 block_pos[1] + positions[i][1],
                 block_pos[2] + positions[i][2],
             ],
-            tex_coords: [
+            tex_coords: pack_uv(
                 region.u_min + uvs[i][0] * u_span,
                 region.v_min + uvs[i][1] * v_span,
-            ],
-            light: lights[i],
-            tint,
+            ),
+            light_tint: pack_light_tint(lights[i], tint),
         });
     }
 

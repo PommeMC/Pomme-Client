@@ -62,7 +62,7 @@ struct ChunkMeta {
     index_count: u32,
     first_index: u32,
     vertex_offset: i32,
-    _pad: u32,
+    visibility: u32,
 }
 
 #[repr(C)]
@@ -87,6 +87,7 @@ struct ChunkAlloc {
     buckets: Vec<u32>,
     index_counts: Vec<u32>,
     aabb: ChunkAABB,
+    uploaded_at: std::time::Instant,
 }
 
 pub struct ChunkBufferStore {
@@ -121,6 +122,7 @@ pub struct ChunkBufferStore {
     count_allocs: Vec<Allocation>,
     frustum_buffers: Vec<vk::Buffer>,
     frustum_allocs: Vec<Allocation>,
+    fade_enabled: bool,
 }
 
 impl ChunkBufferStore {
@@ -378,6 +380,7 @@ impl ChunkBufferStore {
             count_allocs,
             frustum_buffers,
             frustum_allocs,
+            fade_enabled: false,
         }
     }
 
@@ -558,6 +561,7 @@ impl ChunkBufferStore {
                 buckets: bucket_ids,
                 index_counts,
                 aabb,
+                uploaded_at: std::time::Instant::now(),
             },
         );
         self.meta_dirty = true;
@@ -580,6 +584,7 @@ impl ChunkBufferStore {
         }
         self.cached_meta.clear();
         self.meta_dirty = true;
+        self.fade_enabled = false;
     }
 
     pub fn chunk_count(&self) -> u32 {
@@ -598,9 +603,32 @@ impl ChunkBufferStore {
             return;
         }
 
-        if self.meta_dirty {
+        let now = std::time::Instant::now();
+        const FADE_DURATION_MS: f32 = 1000.0;
+        const NEARBY_DIST_SQ: f32 = 768.0;
+
+        let any_fading = self.fade_enabled
+            && self.chunks.values().any(|alloc| {
+                now.duration_since(alloc.uploaded_at).as_secs_f32() * 1000.0 < FADE_DURATION_MS
+            });
+
+        if self.meta_dirty || any_fading {
             self.cached_meta.clear();
             for alloc in self.chunks.values() {
+                let center = [
+                    (alloc.aabb.min[0] + alloc.aabb.max[0]) * 0.5 - camera_pos[0],
+                    (alloc.aabb.min[1] + alloc.aabb.max[1]) * 0.5 - camera_pos[1],
+                    (alloc.aabb.min[2] + alloc.aabb.max[2]) * 0.5 - camera_pos[2],
+                ];
+                let dist_sq = center[0] * center[0] + center[1] * center[1] + center[2] * center[2];
+                let vis = if !self.fade_enabled || dist_sq < NEARBY_DIST_SQ {
+                    1.0
+                } else {
+                    let elapsed_ms = now.duration_since(alloc.uploaded_at).as_secs_f32() * 1000.0;
+                    (elapsed_ms / FADE_DURATION_MS).min(1.0)
+                };
+                let vis_bits = vis.to_bits();
+
                 for (i, &bucket) in alloc.buckets.iter().enumerate() {
                     self.cached_meta.push(ChunkMeta {
                         aabb_min: alloc.aabb.min,
@@ -608,7 +636,7 @@ impl ChunkBufferStore {
                         index_count: alloc.index_counts[i],
                         first_index: bucket * BUCKET_INDICES,
                         vertex_offset: (bucket * BUCKET_VERTICES) as i32,
-                        _pad: 0,
+                        visibility: vis_bits,
                     });
                 }
             }
@@ -676,6 +704,10 @@ impl ChunkBufferStore {
                 &[],
                 &[],
             );
+        }
+
+        if !self.fade_enabled {
+            self.fade_enabled = true;
         }
     }
 

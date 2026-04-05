@@ -166,15 +166,17 @@ impl Camera {
 pub struct CameraUniform {
     view_proj: [[f32; 4]; 4],
     camera_pos: [f32; 4],
+    fog_color: [f32; 4],
 }
 
 impl CameraUniform {
-    pub fn from_camera(camera: &Camera) -> Self {
+    pub fn new(camera: &Camera, fog_color: [f32; 3]) -> Self {
         let offset = camera.third_person_offset();
         let pos = camera.position + offset;
         Self {
             view_proj: camera.view_projection().to_cols_array_2d(),
             camera_pos: [pos.x, pos.y, pos.z, 0.0],
+            fog_color: [fog_color[0], fog_color[1], fog_color[2], 0.0],
         }
     }
 }

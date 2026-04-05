@@ -3,6 +3,7 @@
 layout(set = 0, binding = 0) uniform CameraUniform {
     mat4 view_proj;
     vec4 camera_pos;
+    vec4 fog_color;
 };
 
 layout(push_constant) uniform PushConstants {
@@ -11,8 +12,7 @@ layout(push_constant) uniform PushConstants {
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 tex_coords;
-layout(location = 2) in float light;
-layout(location = 3) in vec3 tint;
+layout(location = 2) in vec4 light_tint;
 
 layout(location = 0) out vec2 v_tex_coords;
 
