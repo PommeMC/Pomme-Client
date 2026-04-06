@@ -7,8 +7,12 @@ use std::sync::Arc;
 use azalea_block::BlockState;
 use azalea_core::heightmap_kind::HeightmapKind;
 use azalea_core::position::{BlockPos, ChunkPos};
+use azalea_core::sound::CustomSound;
 use azalea_inventory::ItemStack;
-use azalea_registry::builtin::EntityKind;
+use azalea_protocol::packets::game::c_sound::SoundSource;
+use azalea_registry::builtin::{EntityKind, SoundEvent};
+
+use crate::sound::PlayableSound;
 
 pub enum NetworkEvent {
     Connected,
@@ -154,5 +158,16 @@ pub enum NetworkEvent {
     },
     Disconnected {
         reason: String,
+    },
+    PlaySound {
+        sound: azalea_registry::Holder<SoundEvent, CustomSound>,
+        source: SoundSource,
+
+        x: i32,
+        y: i32,
+        z: i32,
+        volume: f32,
+        pitch: f32,
+        seed: u64,
     },
 }

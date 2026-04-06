@@ -22,6 +22,7 @@ use crate::renderer::Renderer;
 use crate::renderer::chunk::mesher::MeshDispatcher;
 use crate::renderer::pipelines::entity_renderer::EntityRenderInfo;
 use crate::renderer::pipelines::menu_overlay::MenuElement;
+use crate::sound::{PlayableSound, SoundManager};
 use crate::ui::chat::ChatState;
 use crate::ui::common::{self, WHITE};
 use crate::ui::death::{self, DeathAction};
@@ -144,6 +145,7 @@ struct App {
     pending_pack_download: Option<std::thread::JoinHandle<PackDownloadResult>>,
     benchmark: Option<crate::benchmark::Benchmark>,
     benchmark_result: Option<crate::benchmark::BenchmarkResult>,
+    audio_handle: SoundManager,
 }
 
 struct PackDownloadResult {
@@ -203,6 +205,10 @@ impl App {
         };
 
         let resource_packs = crate::resource_pack::ResourcePackManager::new(&data_dirs.game_dir);
+        let asset_index =
+            AssetIndex::load(&data_dirs.indexes_dir, &data_dirs.objects_dir, &version)
+                .expect("Failed to get asset index.");
+
         Self {
             presence,
             display_mode: DisplayMode::Windowed,
@@ -216,7 +222,7 @@ impl App {
             net_task,
             chunk_store: ChunkStore::new(DEFAULT_RENDER_DISTANCE),
             entity_store: EntityStore::new(),
-            asset_index: AssetIndex::load(&data_dirs.indexes_dir, &data_dirs.objects_dir, &version),
+            asset_index: Some(asset_index.clone()),
             position_set: false,
             state,
             menu: MainMenu::new(&data_dirs.game_dir, Arc::clone(&tokio_rt)),
@@ -264,6 +270,7 @@ impl App {
             pending_pack_download: None,
             benchmark: None,
             benchmark_result: None,
+            audio_handle: SoundManager::new(asset_index),
         }
     }
 
@@ -735,6 +742,28 @@ impl App {
                 NetworkEvent::Disconnected { reason } => {
                     tracing::warn!("Disconnected: {reason}");
                     disconnect_reason = Some(reason);
+                }
+                NetworkEvent::PlaySound {
+                    sound,
+                    source,
+                    x,
+                    y,
+                    z,
+                    volume,
+                    pitch,
+                    seed,
+                } => {
+                    let play_sound = PlayableSound {
+                        name: sound,
+                        source,
+                        x,
+                        y,
+                        z,
+                        volume,
+                        pitch,
+                        seed,
+                    };
+                    self.audio_handle.play(play_sound);
                 }
             }
         }

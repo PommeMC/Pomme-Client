@@ -10,7 +10,9 @@ mod physics;
 mod player;
 mod renderer;
 mod resource_pack;
+mod sound;
 mod ui;
+mod util;
 mod window;
 mod world;
 

@@ -47,6 +47,8 @@ open = "5"
 base64 = "0.22"
 simdnbt = "0.10"
 discord-rich-presence = "1.1"
+md5 = "0.8.0"
+oddio = "0.7.4"
 
 [profile.dev]
 opt-level = 1

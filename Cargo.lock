@@ -2613,6 +2613,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "md5"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae960838283323069879657ca3de837e9f7bbb4c7bf6ea7f1b290d5e9476d2e0"
+
+[[package]]
 name = "memchr"
 version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2642,6 +2648,12 @@ dependencies = [
  "adler2",
  "simd-adler32",
 ]
+
+[[package]]
+name = "mint"
+version = "0.5.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e53debba6bda7a793e5f99b8dacf19e626084f525f7829104ba9898f367d85ff"
 
 [[package]]
 name = "mio"
@@ -3108,6 +3120,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "oddio"
+version = "0.7.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c287b2b60511f53bd87e59adca987a46d4bdde6f16ad5cfa89531bffca344cf2"
+dependencies = [
+ "mint",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3358,6 +3379,8 @@ dependencies = [
  "glam",
  "gpu-allocator",
  "image",
+ "md5",
+ "oddio",
  "open",
  "parking_lot",
  "png 0.17.16",

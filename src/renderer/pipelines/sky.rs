@@ -11,6 +11,7 @@ use crate::renderer::MAX_FRAMES_IN_FLIGHT;
 use crate::renderer::camera::Camera;
 use crate::renderer::shader;
 use crate::renderer::util;
+use crate::util::rng::JavaRng;
 
 const STAR_COUNT: u32 = 1500;
 const SUN_SIZE: f32 = 30.0;
@@ -500,33 +501,6 @@ impl SkyPipeline {
     }
 }
 
-struct JavaRandom {
-    seed: u64,
-}
-
-impl JavaRandom {
-    fn new(seed: i64) -> Self {
-        Self {
-            seed: (seed as u64 ^ 25214903917) & 0xFFFF_FFFF_FFFF,
-        }
-    }
-
-    fn next(&mut self, bits: u32) -> i32 {
-        self.seed = (self.seed.wrapping_mul(25214903917).wrapping_add(11)) & 0xFFFF_FFFF_FFFF;
-        (self.seed >> (48 - bits)) as i32
-    }
-
-    fn next_float(&mut self) -> f32 {
-        self.next(24) as f32 / (1u32 << 24) as f32
-    }
-
-    fn next_double(&mut self) -> f64 {
-        let hi = self.next(26) as i64;
-        let lo = self.next(27) as i64;
-        ((hi << 27) + lo) as f64 / (1i64 << 53) as f64
-    }
-}
-
 fn keyframe_segment(
     t: f32,
     count: usize,
@@ -675,7 +649,7 @@ fn build_sky_disc(verts: &mut Vec<SkyVertex>, y: f32) {
 }
 
 fn build_stars(verts: &mut Vec<SkyVertex>) {
-    let mut rng = JavaRandom::new(10842);
+    let mut rng = JavaRng::new(10842);
     let uv = [0.0, 0.0];
 
     for _ in 0..STAR_COUNT {
