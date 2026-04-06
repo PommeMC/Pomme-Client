@@ -717,10 +717,11 @@ impl Renderer {
         entities: &[EntityRenderInfo],
         item_entities: &[pipelines::item_entity::ItemRenderInfo],
     ) -> Result<(), RendererError> {
+        let sky_col = sky.sky_color();
         self.render_frame(
             window,
             hide_cursor,
-            [0.0, 0.0, 0.0, 1.0],
+            [sky_col[0], sky_col[1], sky_col[2], 1.0],
             RenderMode::World {
                 overlay,
                 swing_progress,
@@ -921,10 +922,11 @@ impl Renderer {
         };
         let acquire_ms = t_acquire.elapsed().as_secs_f32() * 1000.0;
 
-        if matches!(mode, RenderMode::World { .. }) {
+        if let RenderMode::World { ref sky, .. } = mode {
+            let fog = sky.fog_color();
             let uniform = CameraUniform::new(
                 &self.camera,
-                [clear_color[0], clear_color[1], clear_color[2]],
+                fog,
             );
             self.chunk_pipeline.update_camera(frame, &uniform);
             self.block_overlay_pipeline.update_camera(frame, &uniform);

@@ -68,10 +68,6 @@ impl Camera {
         }
     }
 
-    pub fn aspect_ratio(&self) -> f32 {
-        self.aspect_ratio
-    }
-
     pub fn set_aspect_ratio(&mut self, aspect: f32) {
         self.aspect_ratio = aspect;
     }
@@ -144,6 +140,19 @@ impl Camera {
 
     pub fn view_projection(&self) -> Mat4 {
         self.view_projection_with_fov(self.fov_radians(1.0))
+    }
+
+    pub fn sky_view_projection(&self) -> Mat4 {
+        let forward = self.forward_vec();
+        let look_dir = if self.mode == CameraMode::ThirdPersonFront {
+            -forward
+        } else {
+            forward
+        };
+        let view = Mat4::look_to_rh(Vec3::ZERO, look_dir, UP);
+        let mut proj = Mat4::perspective_rh(self.fov_radians(1.0), self.aspect_ratio, NEAR, FAR);
+        proj.y_axis.y *= -1.0;
+        proj * view
     }
 
     pub fn view_projection_with_fov(&self, fov: f32) -> Mat4 {

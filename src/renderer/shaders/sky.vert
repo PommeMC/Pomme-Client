@@ -26,7 +26,7 @@ layout(location = 0) out vec2 v_uv;
 vec3 celestial_rotate(vec3 p, float angle) {
     float ca = cos(angle);
     float sa = sin(angle);
-    return vec3(-p.z, p.y * ca - p.x * sa, p.y * sa + p.x * ca);
+    return vec3(-(p.y * sa + p.z * ca), p.y * ca - p.z * sa, p.x);
 }
 
 void main() {
@@ -41,9 +41,9 @@ void main() {
     } else if (mode == 5) {
         float s = sin(sun_angle) < 0.0 ? -1.0 : 1.0;
         pos = vec3(
-            in_position.y * s,
-            in_position.x * s,
-            -in_position.z * sunrise_color.a
+            -in_position.y * s,
+            -in_position.z,
+            in_position.x * s * sunrise_color.a
         );
     }
 
