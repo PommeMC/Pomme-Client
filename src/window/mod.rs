@@ -104,6 +104,7 @@ struct App {
     tokio_rt: Arc<tokio::runtime::Runtime>,
     player: LocalPlayer,
     tick_accumulator: f32,
+    time_tick_accumulator: f32,
     prev_player_pos: glam::Vec3,
     biome_climate:
         Arc<std::collections::HashMap<u32, crate::renderer::chunk::mesher::BiomeClimate>>,
@@ -233,6 +234,7 @@ impl App {
             item_entity_store: ItemEntityStore::new(),
             player: LocalPlayer::new(),
             tick_accumulator: 0.0,
+            time_tick_accumulator: 0.0,
             prev_player_pos: glam::Vec3::ZERO,
             biome_climate: Arc::new(std::collections::HashMap::new()),
             player_walk_pos: 0.0,
@@ -587,7 +589,9 @@ impl App {
                     day_time,
                 } => {
                     self.sky_state.game_time = game_time;
-                    self.sky_state.day_time = day_time;
+                    if let Some(dt) = day_time {
+                        self.sky_state.day_time = dt;
+                    }
                 }
                 NetworkEvent::EntitySpawned {
                     id,
@@ -1447,6 +1451,15 @@ impl ApplicationHandler for App {
                                 }
                             }
 
+                            // Sky time ticks unconditionally so it keeps flowing in menus;
+                            // server SetTime packets reconcile drift.
+                            self.time_tick_accumulator = (self.time_tick_accumulator + dt).min(1.0);
+                            while self.time_tick_accumulator >= TICK_RATE {
+                                self.sky_state.day_time = self.sky_state.day_time.wrapping_add(1);
+                                self.sky_state.game_time = self.sky_state.game_time.wrapping_add(1);
+                                self.time_tick_accumulator -= TICK_RATE;
+                            }
+
                             if !self.paused && !self.inventory_open && !self.chat.is_open() {
                                 if let Some(renderer) = &mut self.renderer {
                                     renderer.update_camera(&mut self.input);
@@ -1819,10 +1832,13 @@ impl ApplicationHandler for App {
                                     });
                                 }
 
+                                let sky_partial_tick =
+                                    (self.time_tick_accumulator / TICK_RATE).clamp(0.0, 1.0);
                                 let sky = crate::renderer::SkyState {
                                     day_time: self.sky_state.day_time,
                                     game_time: self.sky_state.game_time,
                                     rain_level: self.sky_state.rain_level,
+                                    partial_tick: sky_partial_tick,
                                 };
                                 if self.show_chunk_borders {
                                     renderer.update_chunk_borders(

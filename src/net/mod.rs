@@ -69,7 +69,7 @@ pub enum NetworkEvent {
     },
     TimeUpdate {
         game_time: u64,
-        day_time: u64,
+        day_time: Option<u64>,
     },
     GameModeChanged {
         game_mode: u8,

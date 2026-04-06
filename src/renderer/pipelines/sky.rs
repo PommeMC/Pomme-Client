@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use ash::vk;
-use glam::{Mat4, Vec3};
+use glam::Vec3;
 use gpu_allocator::vulkan::{Allocation, Allocator};
 
 use crate::assets::{AssetIndex, resolve_asset_path};
@@ -81,6 +81,16 @@ const SUNRISE_COLOR_KEYFRAMES: &[(f32, i32)] = &[
 
 const BASE_SKY_COLOR: [f32; 3] = [0.478, 0.659, 1.0];
 
+const FOG_COLOR_KEYFRAMES: &[(f32, [f32; 3])] = &[
+    (133.0, [1.0, 1.0, 1.0]),
+    (11867.0, [1.0, 1.0, 1.0]),
+    (13670.0, [0.06, 0.06, 0.09]),
+    (22330.0, [0.06, 0.06, 0.09]),
+];
+
+// EasingType.symmetricCubicBezier(0.362, 0.241)
+const SKY_ANGLE_BEZIER: (f32, f32, f32, f32) = (0.362, 0.241, 0.638, 0.759);
+
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct SkyVertex {
@@ -104,10 +114,12 @@ struct SkyUniform {
     _pad: f32,
 }
 
+#[derive(Clone)]
 pub struct SkyState {
     pub day_time: u64,
     pub game_time: u64,
     pub rain_level: f32,
+    pub partial_tick: f32,
 }
 
 impl SkyState {
@@ -116,12 +128,36 @@ impl SkyState {
             day_time: 6000,
             game_time: 6000,
             rain_level: 0.0,
+            partial_tick: 0.0,
         }
+    }
+
+    pub fn day_tick(&self) -> f32 {
+        (self.day_time % TICKS_PER_DAY as u64) as f32 + self.partial_tick
+    }
+
+    pub fn sky_color(&self) -> [f32; 3] {
+        let mult = sample_rgb_keyframes(self.day_tick(), SKY_COLOR_KEYFRAMES, TICKS_PER_DAY);
+        [
+            BASE_SKY_COLOR[0] * mult[0],
+            BASE_SKY_COLOR[1] * mult[1],
+            BASE_SKY_COLOR[2] * mult[2],
+        ]
+    }
+
+    pub fn fog_color(&self) -> [f32; 3] {
+        let mult = sample_rgb_keyframes(self.day_tick(), FOG_COLOR_KEYFRAMES, TICKS_PER_DAY);
+        [
+            BASE_SKY_COLOR[0] * mult[0],
+            BASE_SKY_COLOR[1] * mult[1],
+            BASE_SKY_COLOR[2] * mult[2],
+        ]
     }
 }
 
 pub struct SkyPipeline {
     pipeline: vk::Pipeline,
+    overlay_pipeline: vk::Pipeline,
     pipeline_layout: vk::PipelineLayout,
     ubo_layout: vk::DescriptorSetLayout,
     tex_layout: vk::DescriptorSetLayout,
@@ -141,8 +177,8 @@ pub struct SkyPipeline {
     moon_offset: u32,
     sunrise_offset: u32,
     sunrise_count: u32,
-    dark_disc_offset: u32,
-    dark_disc_count: u32,
+    _dark_disc_offset: u32,
+    _dark_disc_count: u32,
     sun_image: vk::Image,
     sun_view: vk::ImageView,
     sun_sampler: vk::Sampler,
@@ -186,7 +222,7 @@ impl SkyPipeline {
         let pipeline_layout = unsafe { device.create_pipeline_layout(&layout_info, None) }
             .expect("failed to create sky pipeline layout");
 
-        let pipeline = create_pipeline(device, render_pass, pipeline_layout);
+        let (pipeline, overlay_pipeline) = create_pipelines(device, render_pass, pipeline_layout);
 
         let pool_sizes = [
             vk::DescriptorPoolSize {
@@ -289,6 +325,7 @@ impl SkyPipeline {
 
         Self {
             pipeline,
+            overlay_pipeline,
             pipeline_layout,
             ubo_layout,
             tex_layout,
@@ -308,8 +345,8 @@ impl SkyPipeline {
             moon_offset: geom.moon_offset,
             sunrise_offset: geom.sunrise_offset,
             sunrise_count: geom.sunrise_count,
-            dark_disc_offset: geom.dark_disc_offset,
-            dark_disc_count: geom.dark_disc_count,
+            _dark_disc_offset: geom.dark_disc_offset,
+            _dark_disc_count: geom.dark_disc_count,
             sun_image,
             sun_view,
             sun_sampler,
@@ -329,9 +366,11 @@ impl SkyPipeline {
         camera: &Camera,
         sky: &SkyState,
     ) {
-        let day_tick = (sky.day_time % TICKS_PER_DAY as u64) as f32;
+        let day_tick = sky.day_tick();
 
-        let sun_angle = ((day_tick - 6000.0 + TICKS_PER_DAY) % TICKS_PER_DAY) / TICKS_PER_DAY * TAU;
+        let t = (day_tick - 6000.0).rem_euclid(TICKS_PER_DAY) / TICKS_PER_DAY;
+        let (x1, y1, x2, y2) = SKY_ANGLE_BEZIER;
+        let sun_angle = cubic_bezier_ease(t, x1, y1, x2, y2) * TAU;
         let moon_angle = sun_angle + PI;
         let star_angle = sun_angle;
 
@@ -353,20 +392,7 @@ impl SkyPipeline {
 
         let celestial_alpha = 1.0 - sky.rain_level;
 
-        let forward = Vec3::new(
-            -camera.yaw.sin() * camera.pitch.cos(),
-            camera.pitch.sin(),
-            -camera.yaw.cos() * camera.pitch.cos(),
-        );
-        let view_rotation = Mat4::look_to_rh(Vec3::ZERO, forward, Vec3::Y);
-        let mut proj = Mat4::perspective_rh(
-            crate::renderer::camera::DEFAULT_FOV_DEGREES.to_radians(),
-            camera.aspect_ratio(),
-            0.01,
-            1000.0,
-        );
-        proj.y_axis.y *= -1.0;
-        let view_proj = proj * view_rotation;
+        let view_proj = camera.sky_view_projection();
 
         let uniform = SkyUniform {
             view_proj: view_proj.to_cols_array_2d(),
@@ -417,6 +443,17 @@ impl SkyPipeline {
                 device.cmd_draw(cmd, self.sunrise_count, 1, self.sunrise_offset, 0);
             }
 
+            device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.overlay_pipeline);
+            device.cmd_bind_vertex_buffers(cmd, 0, &[self.vertex_buffer], &[0]);
+            device.cmd_bind_descriptor_sets(
+                cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.pipeline_layout,
+                0,
+                &[self.ubo_sets[frame], self.sun_set],
+                &[],
+            );
+
             push_mode(device, 2);
             device.cmd_draw(cmd, 6, 1, self.sun_offset, 0);
 
@@ -435,15 +472,17 @@ impl SkyPipeline {
                 push_mode(device, 1);
                 device.cmd_draw(cmd, self.star_count, 1, self.star_offset, 0);
             }
-
-            push_mode(device, 4);
-            device.cmd_draw(cmd, self.dark_disc_count, 1, self.dark_disc_offset, 0);
         }
     }
 
     pub fn recreate_pipeline(&mut self, device: &ash::Device, render_pass: vk::RenderPass) {
-        unsafe { device.destroy_pipeline(self.pipeline, None) };
-        self.pipeline = create_pipeline(device, render_pass, self.pipeline_layout);
+        unsafe {
+            device.destroy_pipeline(self.pipeline, None);
+            device.destroy_pipeline(self.overlay_pipeline, None);
+        }
+        let (p, o) = create_pipelines(device, render_pass, self.pipeline_layout);
+        self.pipeline = p;
+        self.overlay_pipeline = o;
     }
 
     pub fn destroy(&mut self, device: &ash::Device, allocator: &Arc<Mutex<Allocator>>) {
@@ -492,6 +531,7 @@ impl SkyPipeline {
 
         unsafe {
             device.destroy_pipeline(self.pipeline, None);
+            device.destroy_pipeline(self.overlay_pipeline, None);
             device.destroy_pipeline_layout(self.pipeline_layout, None);
             device.destroy_descriptor_pool(self.descriptor_pool, None);
             device.destroy_descriptor_set_layout(self.ubo_layout, None);
@@ -525,6 +565,29 @@ impl JavaRandom {
         let lo = self.next(27) as i64;
         ((hi << 27) + lo) as f64 / (1i64 << 53) as f64
     }
+}
+
+/// CSS-style cubic Bezier easing with P0=(0,0), P3=(1,1). Solves Bx(s)=x via 4 Newton-Raphson
+/// iterations (matches vanilla EasingType.CubicBezier) and returns By(s).
+fn cubic_bezier_ease(x: f32, x1: f32, y1: f32, x2: f32, y2: f32) -> f32 {
+    let x = x.clamp(0.0, 1.0);
+    let cx = 3.0 * x1;
+    let bx = 3.0 * (x2 - x1) - cx;
+    let ax = 1.0 - cx - bx;
+    let cy = 3.0 * y1;
+    let by = 3.0 * (y2 - y1) - cy;
+    let ay = 1.0 - cy - by;
+
+    let mut s = x;
+    for _ in 0..4 {
+        let d = (3.0 * ax * s + 2.0 * bx) * s + cx;
+        if d.abs() < 1e-6 {
+            break;
+        }
+        s -= (((ax * s + bx) * s + cx) * s - x) / d;
+    }
+    let s = s.clamp(0.0, 1.0);
+    ((ay * s + by) * s + cy) * s
 }
 
 fn keyframe_segment(
@@ -827,11 +890,11 @@ fn bind_texture_set(
     unsafe { device.update_descriptor_sets(&[write], &[]) };
 }
 
-fn create_pipeline(
+fn create_pipelines(
     device: &ash::Device,
     render_pass: vk::RenderPass,
     layout: vk::PipelineLayout,
-) -> vk::Pipeline {
+) -> (vk::Pipeline, vk::Pipeline) {
     let vert_spv = shader::include_spirv!("sky.vert.spv");
     let frag_spv = shader::include_spirv!("sky.frag.spv");
 
@@ -894,24 +957,38 @@ fn create_pipeline(
         .depth_test_enable(false)
         .depth_write_enable(false);
 
-    let blend_attachment = [vk::PipelineColorBlendAttachmentState {
+    let translucent_blend = [vk::PipelineColorBlendAttachmentState {
         blend_enable: vk::TRUE,
         src_color_blend_factor: vk::BlendFactor::SRC_ALPHA,
         dst_color_blend_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+        color_blend_op: vk::BlendOp::ADD,
+        src_alpha_blend_factor: vk::BlendFactor::ONE,
+        dst_alpha_blend_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+        alpha_blend_op: vk::BlendOp::ADD,
+        color_write_mask: vk::ColorComponentFlags::RGBA,
+    }];
+
+    let overlay_blend = [vk::PipelineColorBlendAttachmentState {
+        blend_enable: vk::TRUE,
+        src_color_blend_factor: vk::BlendFactor::SRC_ALPHA,
+        dst_color_blend_factor: vk::BlendFactor::ONE,
         color_blend_op: vk::BlendOp::ADD,
         src_alpha_blend_factor: vk::BlendFactor::ONE,
         dst_alpha_blend_factor: vk::BlendFactor::ZERO,
         alpha_blend_op: vk::BlendOp::ADD,
         color_write_mask: vk::ColorComponentFlags::RGBA,
     }];
-    let color_blending =
-        vk::PipelineColorBlendStateCreateInfo::default().attachments(&blend_attachment);
 
     let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
     let dynamic_state =
         vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
 
-    let pipeline_info = [vk::GraphicsPipelineCreateInfo::default()
+    let translucent_blending =
+        vk::PipelineColorBlendStateCreateInfo::default().attachments(&translucent_blend);
+    let overlay_blending =
+        vk::PipelineColorBlendStateCreateInfo::default().attachments(&overlay_blend);
+
+    let base = vk::GraphicsPipelineCreateInfo::default()
         .stages(&stages)
         .vertex_input_state(&vertex_input)
         .input_assembly_state(&input_assembly)
@@ -919,21 +996,24 @@ fn create_pipeline(
         .rasterization_state(&rasterizer)
         .multisample_state(&multisampling)
         .depth_stencil_state(&depth_stencil)
-        .color_blend_state(&color_blending)
         .dynamic_state(&dynamic_state)
         .layout(layout)
         .render_pass(render_pass)
-        .subpass(0)];
+        .subpass(0);
 
-    let pipeline = unsafe {
-        device.create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_info, None)
-    }
-    .expect("failed to create sky pipeline")[0];
+    let infos = [
+        base.color_blend_state(&translucent_blending),
+        base.color_blend_state(&overlay_blending),
+    ];
+
+    let pipelines =
+        unsafe { device.create_graphics_pipelines(vk::PipelineCache::null(), &infos, None) }
+            .expect("failed to create sky pipelines");
 
     unsafe {
         device.destroy_shader_module(vert_module, None);
         device.destroy_shader_module(frag_module, None);
     }
 
-    pipeline
+    (pipelines[0], pipelines[1])
 }
