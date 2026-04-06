@@ -1435,12 +1435,10 @@ impl ApplicationHandler for App {
 
                             // Sky time ticks unconditionally so it keeps flowing in menus;
                             // server SetTime packets reconcile drift.
-                            self.time_tick_accumulator =
-                                (self.time_tick_accumulator + dt).min(1.0);
+                            self.time_tick_accumulator = (self.time_tick_accumulator + dt).min(1.0);
                             while self.time_tick_accumulator >= TICK_RATE {
                                 self.sky_state.day_time = self.sky_state.day_time.wrapping_add(1);
-                                self.sky_state.game_time =
-                                    self.sky_state.game_time.wrapping_add(1);
+                                self.sky_state.game_time = self.sky_state.game_time.wrapping_add(1);
                                 self.time_tick_accumulator -= TICK_RATE;
                             }
 

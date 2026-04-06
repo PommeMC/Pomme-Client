@@ -924,10 +924,7 @@ impl Renderer {
 
         if let RenderMode::World { ref sky, .. } = mode {
             let fog = sky.fog_color();
-            let uniform = CameraUniform::new(
-                &self.camera,
-                fog,
-            );
+            let uniform = CameraUniform::new(&self.camera, fog);
             self.chunk_pipeline.update_camera(frame, &uniform);
             self.block_overlay_pipeline.update_camera(frame, &uniform);
             self.entity_renderer.update_camera(frame, &uniform);

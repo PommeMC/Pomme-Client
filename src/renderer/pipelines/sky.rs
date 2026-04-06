@@ -472,7 +472,6 @@ impl SkyPipeline {
                 push_mode(device, 1);
                 device.cmd_draw(cmd, self.star_count, 1, self.star_offset, 0);
             }
-
         }
     }
 
@@ -1007,10 +1006,9 @@ fn create_pipelines(
         base.color_blend_state(&overlay_blending),
     ];
 
-    let pipelines = unsafe {
-        device.create_graphics_pipelines(vk::PipelineCache::null(), &infos, None)
-    }
-    .expect("failed to create sky pipelines");
+    let pipelines =
+        unsafe { device.create_graphics_pipelines(vk::PipelineCache::null(), &infos, None) }
+            .expect("failed to create sky pipelines");
 
     unsafe {
         device.destroy_shader_module(vert_module, None);
