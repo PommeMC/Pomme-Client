@@ -988,7 +988,6 @@ impl MenuOverlayPipeline {
         ];
 
         unsafe {
-            device.update_descriptor_sets(&tex_writes, &[]);
             device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
             push_desc.cmd_push_descriptor_set(
                 cmd,
@@ -1030,12 +1029,25 @@ impl MenuOverlayPipeline {
 
     pub fn set_blur_texture(
         &mut self,
-        _device: &ash::Device,
+        device: &ash::Device,
         view: vk::ImageView,
         sampler: vk::Sampler,
     ) {
         self.blur_view = view;
         self.blur_sampler = sampler;
+        let img_info = [vk::DescriptorImageInfo {
+            sampler,
+            image_view: view,
+            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        }];
+        let write = vk::WriteDescriptorSet::default()
+            .dst_set(self.tex_descriptor_set)
+            .dst_binding(4)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .image_info(&img_info);
+        unsafe {
+            device.update_descriptor_sets(&[write], &[]);
+        }
     }
 
     pub fn update_favicon_atlas(
