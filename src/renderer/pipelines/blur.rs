@@ -111,6 +111,7 @@ impl BlurPipeline {
         &self,
         device: &ash::Device,
         push_desc: &ash::khr::push_descriptor::Device,
+        dyn_render: &ash::khr::dynamic_rendering::Device,
         cmd: vk::CommandBuffer,
         src_image: vk::Image,
         src_width: u32,
@@ -290,7 +291,7 @@ impl BlurPipeline {
                     .render_area(scissor)
                     .layer_count(1)
                     .color_attachments(std::slice::from_ref(&color_attachment_b));
-                device.cmd_begin_rendering(cmd, &rendering_info);
+                dyn_render.cmd_begin_rendering(cmd, &rendering_info);
                 device.cmd_set_viewport(cmd, 0, &[viewport]);
                 device.cmd_set_scissor(cmd, 0, &[scissor]);
                 device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
@@ -318,7 +319,7 @@ impl BlurPipeline {
                     bytemuck::cast_slice(&h_dir),
                 );
                 device.cmd_draw(cmd, 3, 1, 0, 0);
-                device.cmd_end_rendering(cmd);
+                dyn_render.cmd_end_rendering(cmd);
 
                 // Transition B to SHADER_READ_ONLY, A to COLOR_ATTACHMENT
                 let barrier_b_read = vk::ImageMemoryBarrier::default()
@@ -357,7 +358,7 @@ impl BlurPipeline {
                     .render_area(scissor)
                     .layer_count(1)
                     .color_attachments(std::slice::from_ref(&color_attachment_a));
-                device.cmd_begin_rendering(cmd, &rendering_info);
+                dyn_render.cmd_begin_rendering(cmd, &rendering_info);
                 device.cmd_set_viewport(cmd, 0, &[viewport]);
                 device.cmd_set_scissor(cmd, 0, &[scissor]);
                 device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
@@ -385,7 +386,7 @@ impl BlurPipeline {
                     bytemuck::cast_slice(&v_dir),
                 );
                 device.cmd_draw(cmd, 3, 1, 0, 0);
-                device.cmd_end_rendering(cmd);
+                dyn_render.cmd_end_rendering(cmd);
 
                 // Transition A back to SHADER_READ_ONLY for next iteration / sampling
                 let barrier_a_read = vk::ImageMemoryBarrier::default()

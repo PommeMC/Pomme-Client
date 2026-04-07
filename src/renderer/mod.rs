@@ -408,7 +408,7 @@ impl Renderer {
             ctx.device.begin_command_buffer(cmd, &begin_info)?;
 
             util::transition_image_layout(
-                &ctx.device,
+                &ctx.synchronization2,
                 cmd,
                 swapchain.images[image_index as usize],
                 vk::ImageLayout::UNDEFINED,
@@ -420,7 +420,7 @@ impl Renderer {
                 vk::ImageAspectFlags::COLOR,
             );
             util::transition_image_layout(
-                &ctx.device,
+                &ctx.synchronization2,
                 cmd,
                 swapchain.depth_image,
                 vk::ImageLayout::UNDEFINED,
@@ -463,7 +463,8 @@ impl Renderer {
                 .color_attachments(&color_attachments)
                 .depth_attachment(&depth_attachment);
 
-            ctx.device.cmd_begin_rendering(cmd, &rendering_info);
+            ctx.dynamic_rendering
+                .cmd_begin_rendering(cmd, &rendering_info);
 
             let viewport = vk::Viewport {
                 x: 0.0,
@@ -483,10 +484,10 @@ impl Renderer {
 
             menu.draw(&ctx.device, &ctx.push_descriptor, cmd, sw, sh, &elements);
 
-            ctx.device.cmd_end_rendering(cmd);
+            ctx.dynamic_rendering.cmd_end_rendering(cmd);
 
             util::transition_image_layout(
-                &ctx.device,
+                &ctx.synchronization2,
                 cmd,
                 swapchain.images[image_index as usize],
                 vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
@@ -1055,7 +1056,7 @@ impl Renderer {
             let swapchain_image = self.swapchain.images[image_index as usize];
 
             util::transition_image_layout(
-                &self.ctx.device,
+                &self.ctx.synchronization2,
                 cmd,
                 swapchain_image,
                 vk::ImageLayout::UNDEFINED,
@@ -1067,7 +1068,7 @@ impl Renderer {
                 vk::ImageAspectFlags::COLOR,
             );
             util::transition_image_layout(
-                &self.ctx.device,
+                &self.ctx.synchronization2,
                 cmd,
                 self.swapchain.depth_image,
                 vk::ImageLayout::UNDEFINED,
@@ -1110,7 +1111,9 @@ impl Renderer {
                 .color_attachments(&color_attachments)
                 .depth_attachment(&depth_attachment);
 
-            self.ctx.device.cmd_begin_rendering(cmd, &rendering_info);
+            self.ctx
+                .dynamic_rendering
+                .cmd_begin_rendering(cmd, &rendering_info);
 
             let viewport = vk::Viewport {
                 x: 0.0,
@@ -1260,12 +1263,13 @@ impl Renderer {
                     );
 
                     if *blur > 0.01 {
-                        self.ctx.device.cmd_end_rendering(cmd);
+                        self.ctx.dynamic_rendering.cmd_end_rendering(cmd);
 
                         let iterations = ((*blur * 3.0).ceil() as u32).clamp(1, 4);
                         self.blur_pipeline.execute(
                             &self.ctx.device,
                             &self.ctx.push_descriptor,
+                            &self.ctx.dynamic_rendering,
                             cmd,
                             swapchain_image,
                             self.swapchain.extent.width,
@@ -1281,7 +1285,7 @@ impl Renderer {
 
                         // Re-enter rendering with LOAD to preserve blurred content
                         util::transition_image_layout(
-                            &self.ctx.device,
+                            &self.ctx.synchronization2,
                             cmd,
                             swapchain_image,
                             vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
@@ -1319,7 +1323,9 @@ impl Renderer {
                             .layer_count(1)
                             .color_attachments(&load_colors)
                             .depth_attachment(&load_depth);
-                        self.ctx.device.cmd_begin_rendering(cmd, &load_info);
+                        self.ctx
+                            .dynamic_rendering
+                            .cmd_begin_rendering(cmd, &load_info);
                         self.ctx.device.cmd_set_viewport(cmd, 0, &[viewport]);
                         self.ctx.device.cmd_set_scissor(cmd, 0, &[scissor]);
                     }
@@ -1351,10 +1357,10 @@ impl Renderer {
                 }
             }
 
-            self.ctx.device.cmd_end_rendering(cmd);
+            self.ctx.dynamic_rendering.cmd_end_rendering(cmd);
 
             util::transition_image_layout(
-                &self.ctx.device,
+                &self.ctx.synchronization2,
                 cmd,
                 swapchain_image,
                 vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,

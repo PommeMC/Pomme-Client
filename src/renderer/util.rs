@@ -344,7 +344,7 @@ pub const DEPTH_SUBRESOURCE_RANGE: vk::ImageSubresourceRange = vk::ImageSubresou
 
 #[allow(clippy::too_many_arguments)]
 pub fn transition_image_layout(
-    device: &ash::Device,
+    sync2: &ash::khr::synchronization2::Device,
     cmd: vk::CommandBuffer,
     image: vk::Image,
     old_layout: vk::ImageLayout,
@@ -375,7 +375,7 @@ pub fn transition_image_layout(
     let barriers = [barrier];
     let dep_info = vk::DependencyInfo::default().image_memory_barriers(&barriers);
     unsafe {
-        device.cmd_pipeline_barrier2(cmd, &dep_info);
+        sync2.cmd_pipeline_barrier2(cmd, &dep_info);
     }
 }
 
