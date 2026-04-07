@@ -835,8 +835,7 @@ fn mesh_chunk_snapshot(
 
                 if lod > 0 {
                     emit_lod_cube(
-                        verts, idxs, block_pos, state, snapshot, registry, uv_map, bx, by, bz,
-                        step,
+                        verts, idxs, block_pos, state, snapshot, registry, uv_map, bx, by, bz, step,
                     );
                 } else if let BlockKind::Water | BlockKind::Lava = kind {
                     let fluid = if matches!(kind, BlockKind::Lava) {
@@ -1013,46 +1012,49 @@ enum BlockKind {
     Solid,
 }
 
-const TRANSLUCENT_BLOCKS: &[&str] = &[
-    "glass",
-    "glass_pane",
-    "white_stained_glass",
-    "orange_stained_glass",
-    "magenta_stained_glass",
-    "light_blue_stained_glass",
-    "yellow_stained_glass",
-    "lime_stained_glass",
-    "pink_stained_glass",
-    "gray_stained_glass",
-    "light_gray_stained_glass",
-    "cyan_stained_glass",
-    "purple_stained_glass",
-    "blue_stained_glass",
-    "brown_stained_glass",
-    "green_stained_glass",
-    "red_stained_glass",
-    "black_stained_glass",
-    "white_stained_glass_pane",
-    "orange_stained_glass_pane",
-    "magenta_stained_glass_pane",
-    "light_blue_stained_glass_pane",
-    "yellow_stained_glass_pane",
-    "lime_stained_glass_pane",
-    "pink_stained_glass_pane",
-    "gray_stained_glass_pane",
-    "light_gray_stained_glass_pane",
-    "cyan_stained_glass_pane",
-    "purple_stained_glass_pane",
-    "blue_stained_glass_pane",
-    "brown_stained_glass_pane",
-    "green_stained_glass_pane",
-    "red_stained_glass_pane",
-    "black_stained_glass_pane",
-    "ice",
-    "slime_block",
-    "honey_block",
-    "tinted_glass",
-];
+fn is_translucent_block(id: &str) -> bool {
+    matches!(
+        id,
+        "glass"
+            | "glass_pane"
+            | "white_stained_glass"
+            | "orange_stained_glass"
+            | "magenta_stained_glass"
+            | "light_blue_stained_glass"
+            | "yellow_stained_glass"
+            | "lime_stained_glass"
+            | "pink_stained_glass"
+            | "gray_stained_glass"
+            | "light_gray_stained_glass"
+            | "cyan_stained_glass"
+            | "purple_stained_glass"
+            | "blue_stained_glass"
+            | "brown_stained_glass"
+            | "green_stained_glass"
+            | "red_stained_glass"
+            | "black_stained_glass"
+            | "white_stained_glass_pane"
+            | "orange_stained_glass_pane"
+            | "magenta_stained_glass_pane"
+            | "light_blue_stained_glass_pane"
+            | "yellow_stained_glass_pane"
+            | "lime_stained_glass_pane"
+            | "pink_stained_glass_pane"
+            | "gray_stained_glass_pane"
+            | "light_gray_stained_glass_pane"
+            | "cyan_stained_glass_pane"
+            | "purple_stained_glass_pane"
+            | "blue_stained_glass_pane"
+            | "brown_stained_glass_pane"
+            | "green_stained_glass_pane"
+            | "red_stained_glass_pane"
+            | "black_stained_glass_pane"
+            | "ice"
+            | "slime_block"
+            | "honey_block"
+            | "tinted_glass"
+    )
+}
 
 fn classify_block(state: azalea_block::BlockState) -> BlockKind {
     if state.is_air() {
@@ -1066,7 +1068,7 @@ fn classify_block(state: azalea_block::BlockState) -> BlockKind {
         }
         "water" | "bubble_column" => BlockKind::Water,
         "lava" => BlockKind::Lava,
-        _ if TRANSLUCENT_BLOCKS.contains(&id) => BlockKind::Translucent,
+        _ if is_translucent_block(id) => BlockKind::Translucent,
         _ => BlockKind::Solid,
     }
 }

@@ -207,14 +207,15 @@ impl ChunkPipeline {
     }
 }
 
-fn create_pipeline(
+fn create_chunk_pipeline(
     device: &ash::Device,
     render_pass: vk::RenderPass,
     layout: vk::PipelineLayout,
+    frag_spv: &[u8],
+    depth_write: bool,
+    blend: bool,
 ) -> vk::Pipeline {
     let vert_spv = shader::include_spirv!("chunk.vert.spv");
-    let frag_spv = shader::include_spirv!("chunk.frag.spv");
-
     let vert_module = shader::create_shader_module(device, vert_spv);
     let frag_module = shader::create_shader_module(device, frag_spv);
 
@@ -255,13 +256,26 @@ fn create_pipeline(
 
     let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::default()
         .depth_test_enable(true)
-        .depth_write_enable(true)
+        .depth_write_enable(depth_write)
         .depth_compare_op(vk::CompareOp::LESS_OR_EQUAL);
 
-    let blend_attachment = [vk::PipelineColorBlendAttachmentState {
-        blend_enable: vk::FALSE,
-        color_write_mask: vk::ColorComponentFlags::RGBA,
-        ..Default::default()
+    let blend_attachment = [if blend {
+        vk::PipelineColorBlendAttachmentState {
+            blend_enable: vk::TRUE,
+            src_color_blend_factor: vk::BlendFactor::SRC_ALPHA,
+            dst_color_blend_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+            color_blend_op: vk::BlendOp::ADD,
+            src_alpha_blend_factor: vk::BlendFactor::ONE,
+            dst_alpha_blend_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+            alpha_blend_op: vk::BlendOp::ADD,
+            color_write_mask: vk::ColorComponentFlags::RGBA,
+        }
+    } else {
+        vk::PipelineColorBlendAttachmentState {
+            blend_enable: vk::FALSE,
+            color_write_mask: vk::ColorComponentFlags::RGBA,
+            ..Default::default()
+        }
     }];
     let color_blending =
         vk::PipelineColorBlendStateCreateInfo::default().attachments(&blend_attachment);
@@ -297,97 +311,32 @@ fn create_pipeline(
     pipeline
 }
 
+fn create_pipeline(
+    device: &ash::Device,
+    render_pass: vk::RenderPass,
+    layout: vk::PipelineLayout,
+) -> vk::Pipeline {
+    create_chunk_pipeline(
+        device,
+        render_pass,
+        layout,
+        shader::include_spirv!("chunk.frag.spv"),
+        true,
+        false,
+    )
+}
+
 fn create_translucent_pipeline(
     device: &ash::Device,
     render_pass: vk::RenderPass,
     layout: vk::PipelineLayout,
 ) -> vk::Pipeline {
-    let vert_spv = shader::include_spirv!("chunk.vert.spv");
-    let frag_spv = shader::include_spirv!("chunk_translucent.frag.spv");
-
-    let vert_module = shader::create_shader_module(device, vert_spv);
-    let frag_module = shader::create_shader_module(device, frag_spv);
-
-    let stages = [
-        vk::PipelineShaderStageCreateInfo::default()
-            .stage(vk::ShaderStageFlags::VERTEX)
-            .module(vert_module)
-            .name(c"main"),
-        vk::PipelineShaderStageCreateInfo::default()
-            .stage(vk::ShaderStageFlags::FRAGMENT)
-            .module(frag_module)
-            .name(c"main"),
-    ];
-
-    use crate::renderer::chunk::mesher::ChunkVertex;
-    let binding_descs = [ChunkVertex::binding_description()];
-    let attr_descs = ChunkVertex::attribute_descriptions();
-
-    let vertex_input = vk::PipelineVertexInputStateCreateInfo::default()
-        .vertex_binding_descriptions(&binding_descs)
-        .vertex_attribute_descriptions(&attr_descs);
-
-    let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::default()
-        .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
-
-    let viewport_state = vk::PipelineViewportStateCreateInfo::default()
-        .viewport_count(1)
-        .scissor_count(1);
-
-    let rasterizer = vk::PipelineRasterizationStateCreateInfo::default()
-        .polygon_mode(vk::PolygonMode::FILL)
-        .cull_mode(vk::CullModeFlags::BACK)
-        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
-        .line_width(1.0);
-
-    let multisampling = vk::PipelineMultisampleStateCreateInfo::default()
-        .rasterization_samples(vk::SampleCountFlags::TYPE_1);
-
-    let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::default()
-        .depth_test_enable(true)
-        .depth_write_enable(false)
-        .depth_compare_op(vk::CompareOp::LESS_OR_EQUAL);
-
-    let blend_attachment = [vk::PipelineColorBlendAttachmentState {
-        blend_enable: vk::TRUE,
-        src_color_blend_factor: vk::BlendFactor::SRC_ALPHA,
-        dst_color_blend_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
-        color_blend_op: vk::BlendOp::ADD,
-        src_alpha_blend_factor: vk::BlendFactor::ONE,
-        dst_alpha_blend_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
-        alpha_blend_op: vk::BlendOp::ADD,
-        color_write_mask: vk::ColorComponentFlags::RGBA,
-    }];
-    let color_blending =
-        vk::PipelineColorBlendStateCreateInfo::default().attachments(&blend_attachment);
-
-    let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
-    let dynamic_state =
-        vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
-
-    let pipeline_info = [vk::GraphicsPipelineCreateInfo::default()
-        .stages(&stages)
-        .vertex_input_state(&vertex_input)
-        .input_assembly_state(&input_assembly)
-        .viewport_state(&viewport_state)
-        .rasterization_state(&rasterizer)
-        .multisample_state(&multisampling)
-        .depth_stencil_state(&depth_stencil)
-        .color_blend_state(&color_blending)
-        .dynamic_state(&dynamic_state)
-        .layout(layout)
-        .render_pass(render_pass)
-        .subpass(0)];
-
-    let pipeline = unsafe {
-        device.create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_info, None)
-    }
-    .expect("failed to create translucent chunk pipeline")[0];
-
-    unsafe {
-        device.destroy_shader_module(vert_module, None);
-        device.destroy_shader_module(frag_module, None);
-    }
-
-    pipeline
+    create_chunk_pipeline(
+        device,
+        render_pass,
+        layout,
+        shader::include_spirv!("chunk_translucent.frag.spv"),
+        false,
+        true,
+    )
 }
