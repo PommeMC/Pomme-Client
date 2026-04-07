@@ -1,6 +1,7 @@
 pub mod camera;
 pub mod chunk;
 mod context;
+pub(crate) mod destruction_queue;
 pub mod entity_model;
 pub mod pipelines;
 pub(crate) mod shader;
@@ -97,6 +98,7 @@ pub struct Renderer {
     chunk_border_pipeline: pipelines::chunk_borders::ChunkBorderPipeline,
     item_entity_pipeline: pipelines::item_entity::ItemEntityPipeline,
     chunk_buffers: ChunkBufferStore,
+    destruction_queue: destruction_queue::DestructionQueue,
     swapchain_dirty: bool,
     width: u32,
     height: u32,
@@ -297,6 +299,7 @@ impl Renderer {
             chunk_border_pipeline,
             item_entity_pipeline,
             chunk_buffers,
+            destruction_queue: destruction_queue::DestructionQueue::new(),
             swapchain_dirty: false,
             width: size.width.max(1),
             height: size.height.max(1),
@@ -940,6 +943,9 @@ impl Renderer {
         }
         let fence_ms = t_fence.elapsed().as_secs_f32() * 1000.0;
 
+        self.destruction_queue
+            .rotate(&self.ctx.device, &self.ctx.allocator);
+
         let t_acquire = std::time::Instant::now();
         let image_index = match unsafe {
             self.ctx.swapchain_loader.acquire_next_image(
@@ -1355,6 +1361,8 @@ impl Drop for Renderer {
         self.item_entity_pipeline
             .destroy(&self.ctx.device, &self.ctx.allocator);
         self.atlas.destroy(&self.ctx.device, &self.ctx.allocator);
+        self.destruction_queue
+            .flush_all(&self.ctx.device, &self.ctx.allocator);
         self.swapchain.destroy(
             &self.ctx.device,
             &self.ctx.swapchain_loader,
