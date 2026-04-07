@@ -64,6 +64,41 @@ impl Aabb {
         self.clip_axis(other, dz, Axis::Z)
     }
 
+    /// Slab-method ray-AABB intersection. Returns the parametric t of the
+    /// entry point along the ray `from → to`, or `None` if no hit.
+    pub fn ray_clip(&self, from: Vec3, to: Vec3) -> Option<f32> {
+        let dir = to - from;
+        let mut t_min = 0.0f32;
+        let mut t_max = 1.0f32;
+
+        for i in 0..3 {
+            let origin = [from.x, from.y, from.z][i];
+            let d = [dir.x, dir.y, dir.z][i];
+            let lo = [self.min.x, self.min.y, self.min.z][i];
+            let hi = [self.max.x, self.max.y, self.max.z][i];
+
+            if d.abs() < 1e-9 {
+                if origin < lo || origin > hi {
+                    return None;
+                }
+            } else {
+                let inv = 1.0 / d;
+                let mut t0 = (lo - origin) * inv;
+                let mut t1 = (hi - origin) * inv;
+                if t0 > t1 {
+                    std::mem::swap(&mut t0, &mut t1);
+                }
+                t_min = t_min.max(t0);
+                t_max = t_max.min(t1);
+                if t_min > t_max {
+                    return None;
+                }
+            }
+        }
+
+        Some(t_min)
+    }
+
     fn clip_axis(&self, other: &Aabb, mut delta: f32, axis: Axis) -> f32 {
         let (c1, c2) = axis.cross_axes();
 

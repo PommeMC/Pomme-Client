@@ -160,6 +160,32 @@ impl BlockRegistry {
         if quads.is_empty() { None } else { Some(quads) }
     }
 
+    /// Returns the visual AABB of a block in local [0,1] space, matching vanilla's
+    /// `getVisualShape`. Returns `None` for air and transparent blocks (glass, etc.)
+    /// that the camera should pass through.
+    pub fn visual_shape(&self, state: BlockState) -> Option<crate::physics::aabb::Aabb> {
+        use crate::physics::aabb::Aabb;
+        let full = || Some(Aabb::new(glam::Vec3::ZERO, glam::Vec3::ONE));
+
+        if state.is_air() {
+            return None;
+        }
+        let block: Box<dyn azalea_block::BlockTrait> = state.into();
+        if is_transparent_block(block.id()) {
+            return None;
+        }
+        if let Some(model) = self.get_baked_model(state) {
+            if model.is_full_cube {
+                return full();
+            }
+            return aabb_from_quads(model.quads.iter()).or_else(full);
+        }
+        if let Some(quads) = self.get_multipart_quads(state) {
+            return aabb_from_quads(quads.into_iter()).or_else(full);
+        }
+        full()
+    }
+
     pub fn is_opaque_full_cube(&self, state: BlockState) -> bool {
         if state.is_air() {
             return false;
@@ -209,6 +235,63 @@ fn build_variant_key(block: &dyn azalea_block::BlockTrait) -> String {
         .map(|(k, v)| format!("{k}={v}"))
         .collect::<Vec<_>>()
         .join(",")
+}
+
+/// Blocks where vanilla's `getVisualShape` returns empty (TransparentBlock subclasses).
+/// Camera passes through these.
+fn is_transparent_block(id: &str) -> bool {
+    matches!(
+        id,
+        "glass"
+            | "white_stained_glass"
+            | "orange_stained_glass"
+            | "magenta_stained_glass"
+            | "light_blue_stained_glass"
+            | "yellow_stained_glass"
+            | "lime_stained_glass"
+            | "pink_stained_glass"
+            | "gray_stained_glass"
+            | "light_gray_stained_glass"
+            | "cyan_stained_glass"
+            | "purple_stained_glass"
+            | "blue_stained_glass"
+            | "brown_stained_glass"
+            | "green_stained_glass"
+            | "red_stained_glass"
+            | "black_stained_glass"
+            | "tinted_glass"
+            | "copper_grate"
+            | "exposed_copper_grate"
+            | "weathered_copper_grate"
+            | "oxidized_copper_grate"
+            | "waxed_copper_grate"
+            | "waxed_exposed_copper_grate"
+            | "waxed_weathered_copper_grate"
+            | "waxed_oxidized_copper_grate"
+    )
+}
+
+fn aabb_from_quads<'a>(quads: impl Iterator<Item = &'a super::model::BakedQuad>) -> Option<crate::physics::aabb::Aabb> {
+    let mut min = [f32::MAX; 3];
+    let mut max = [f32::MIN; 3];
+    let mut any = false;
+    for q in quads {
+        for pos in &q.positions {
+            for i in 0..3 {
+                // Baked quad positions are already in [0..1] block space
+                min[i] = min[i].min(pos[i]);
+                max[i] = max[i].max(pos[i]);
+            }
+            any = true;
+        }
+    }
+    if !any {
+        return None;
+    }
+    Some(crate::physics::aabb::Aabb::new(
+        glam::Vec3::new(min[0], min[1], min[2]),
+        glam::Vec3::new(max[0], max[1], max[2]),
+    ))
 }
 
 fn load_cache(path: &Path) -> Option<HashMap<String, FaceTextures>> {

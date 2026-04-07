@@ -552,6 +552,9 @@ impl Renderer {
         self.camera.pitch = pitch;
     }
 
+    /// Matches vanilla `Camera.getMaxZoom` (Camera.java:294-308).
+    /// Casts 8 jittered rays from eye position along the camera direction,
+    /// using ray-AABB intersection against each block's visual shape.
     pub fn update_third_person_distance(
         &mut self,
         eye_pos: glam::Vec3,
@@ -562,46 +565,74 @@ impl Renderer {
         }
         let max = camera::THIRD_PERSON_DISTANCE;
         let fwd = self.camera.forward_vec();
-        let dir = if self.camera.mode == camera::CameraMode::ThirdPersonFront {
+        let dir = if self.camera.mode == camera::CameraMode::ThirdPersonBack {
             fwd
         } else {
             -fwd
         };
-        let mut dist = max;
+        let mut camera_dist = max;
 
-        let m = 0.4;
-        let corners = [
-            glam::Vec3::new(m, m, m),
-            glam::Vec3::new(m, m, -m),
-            glam::Vec3::new(m, -m, m),
-            glam::Vec3::new(m, -m, -m),
-            glam::Vec3::new(-m, m, m),
-            glam::Vec3::new(-m, m, -m),
-            glam::Vec3::new(-m, -m, m),
-            glam::Vec3::new(-m, -m, -m),
-        ];
+        for i in 0..8u8 {
+            let ox = ((i & 1) as f32) * 2.0 - 1.0;
+            let oy = (((i >> 1) & 1) as f32) * 2.0 - 1.0;
+            let oz = (((i >> 2) & 1) as f32) * 2.0 - 1.0;
+            let from = eye_pos + glam::Vec3::new(ox * 0.1, oy * 0.1, oz * 0.1);
+            let to = from + dir * camera_dist;
 
-        let step = 0.2;
-        let mut t = step;
-        while t <= max {
-            let p = eye_pos + dir * t;
-            let hit = corners.iter().any(|off| {
-                let check = p + *off;
-                let state = chunks.get_block_state(
-                    check.x.floor() as i32,
-                    check.y.floor() as i32,
-                    check.z.floor() as i32,
-                );
-                self.registry.is_opaque_full_cube(state)
-            });
-            if hit {
-                dist = (t - 0.3).max(0.5);
-                break;
+            if let Some(hit_point) = self.camera_ray_clip(from, to, chunks) {
+                // Vanilla measures distance from eye center, not from jittered origin
+                let dist_sq = (hit_point - eye_pos).length_squared();
+                if dist_sq < camera_dist * camera_dist {
+                    camera_dist = dist_sq.sqrt();
+                }
+            }
+        }
+
+        self.camera.third_person_dist = camera_dist;
+    }
+
+    /// Casts a ray from `from` to `to`, testing each block's visual shape AABB.
+    /// Returns the world-space hit point of the nearest intersection, or `None`.
+    fn camera_ray_clip(
+        &self,
+        from: glam::Vec3,
+        to: glam::Vec3,
+        chunks: &crate::world::chunk::ChunkStore,
+    ) -> Option<glam::Vec3> {
+        let diff = to - from;
+        let len = diff.length();
+        if len < 1e-6 {
+            return None;
+        }
+        let dir = diff / len;
+        let step = 0.05;
+        let mut t = 0.0;
+        let mut prev = (i32::MAX, i32::MAX, i32::MAX);
+        let mut best: Option<(f32, glam::Vec3)> = None;
+
+        while t <= len {
+            let p = from + dir * t;
+            let bx = p.x.floor() as i32;
+            let by = p.y.floor() as i32;
+            let bz = p.z.floor() as i32;
+            if (bx, by, bz) != prev {
+                let state = chunks.get_block_state(bx, by, bz);
+                if let Some(local_aabb) = self.registry.visual_shape(state) {
+                    let block_origin = glam::Vec3::new(bx as f32, by as f32, bz as f32);
+                    let world_aabb = local_aabb.offset(block_origin);
+                    if let Some(t_hit) = world_aabb.ray_clip(from, to) {
+                        let hit = from + (to - from) * t_hit;
+                        let dist_sq = (hit - from).length_squared();
+                        if best.is_none_or(|(d, _)| dist_sq < d) {
+                            best = Some((dist_sq, hit));
+                        }
+                    }
+                }
+                prev = (bx, by, bz);
             }
             t += step;
         }
-
-        self.camera.third_person_dist = dist.max(0.5);
+        best.map(|(_, hit)| hit)
     }
 
     pub fn update_fov(&mut self, modifier: f32) {
@@ -626,6 +657,10 @@ impl Renderer {
 
     pub fn is_first_person(&self) -> bool {
         self.camera.mode == camera::CameraMode::FirstPerson
+    }
+
+    pub fn camera_mode(&self) -> camera::CameraMode {
+        self.camera.mode
     }
 
     pub fn gpu_name(&self) -> &str {

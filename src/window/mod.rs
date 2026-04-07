@@ -824,10 +824,12 @@ impl App {
             return;
         }
         if let Some(renderer) = &self.renderer {
-            self.player.yaw = if renderer.is_first_person() {
-                renderer.camera_yaw()
-            } else {
+            self.player.yaw = if renderer.camera_mode()
+                == crate::renderer::camera::CameraMode::ThirdPersonBack
+            {
                 renderer.camera_yaw() + std::f32::consts::PI
+            } else {
+                renderer.camera_yaw()
             };
             self.player.pitch = renderer.camera_pitch();
         }
@@ -1841,14 +1843,14 @@ impl ApplicationHandler for App {
                                     .collect();
 
                                 if !renderer.is_first_person() {
-                                    let cam_yaw_deg = -renderer.camera_yaw().to_degrees();
+                                    let body_yaw_deg = -self.player.yaw.to_degrees();
                                     entity_renders.push(EntityRenderInfo {
                                         x: interp_pos.x as f64,
                                         y: interp_pos.y as f64,
                                         z: interp_pos.z as f64,
-                                        yaw: cam_yaw_deg,
+                                        yaw: body_yaw_deg,
                                         pitch: renderer.camera_pitch().to_degrees(),
-                                        head_yaw: cam_yaw_deg,
+                                        head_yaw: -renderer.camera_yaw().to_degrees(),
                                         is_baby: false,
                                         walk_anim_pos: self.player_walk_pos
                                             - self.player_walk_speed * (1.0 - alpha),

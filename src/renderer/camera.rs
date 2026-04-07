@@ -133,8 +133,8 @@ impl Camera {
         let fwd = self.forward_vec();
         match self.mode {
             CameraMode::FirstPerson => Vec3::ZERO,
-            CameraMode::ThirdPersonBack => -fwd * self.third_person_dist,
-            CameraMode::ThirdPersonFront => fwd * self.third_person_dist,
+            CameraMode::ThirdPersonBack => fwd * self.third_person_dist,
+            CameraMode::ThirdPersonFront => -fwd * self.third_person_dist,
         }
     }
 
@@ -144,7 +144,7 @@ impl Camera {
 
     pub fn sky_view_projection(&self) -> Mat4 {
         let forward = self.forward_vec();
-        let look_dir = if self.mode == CameraMode::ThirdPersonFront {
+        let look_dir = if self.mode == CameraMode::ThirdPersonBack {
             -forward
         } else {
             forward
@@ -158,7 +158,7 @@ impl Camera {
     pub fn view_projection_with_fov(&self, fov: f32) -> Mat4 {
         let forward = self.forward_vec();
         let offset = self.third_person_offset();
-        let look_dir = if self.mode == CameraMode::ThirdPersonFront {
+        let look_dir = if self.mode == CameraMode::ThirdPersonBack {
             -forward
         } else {
             forward
