@@ -32,6 +32,26 @@
   --console-debug: #7abfff;
   --console-error: #fc757a;
 
+  --green: #4ade80;
+  --green-dim: rgba(74, 222, 128, 0.7);
+  --green-glow: rgba(74, 222, 128, 0.15);
+  --green-border: rgba(74, 222, 128, 0.2);
+
+  --red: #ff4455;
+  --red-dim: rgba(255, 68, 85, 0.7);
+  --red-glow: rgba(255, 68, 85, 0.12);
+  --red-border: rgba(255, 68, 85, 0.25);
+
+  --yellow: #ffc14d;
+  --yellow-dim: rgba(255, 193, 77, 0.7);
+  --yellow-glow: rgba(255, 193, 77, 0.12);
+  --yellow-border: rgba(255, 193, 77, 0.25);
+
+  --blue: #3b82f6;
+  --blue-dim: rgba(59, 130, 246, 0.7);
+  --blue-glow: rgba(59, 130, 246, 0.2);
+  --blue-border: rgba(59, 130, 246, 0.3);
+
   --ansi-black: #191e2a;
   --ansi-red: #ff3333;
   --ansi-green: #bae67e;
@@ -173,7 +193,7 @@ body {
 }
 
 .tb-close:hover {
-  background: rgba(224, 64, 80, 0.8);
+  background: var(--red-dim);
   color: white;
 }
 
@@ -441,7 +461,15 @@ body {
 }
 
 .account-remove:hover {
-  color: #e04050;
+  color: var(--red);
+}
+
+.account-menu-btn.logout:hover {
+  color: var(--red);
+}
+
+.install-action-btn.delete:hover {
+  color: var(--red);
 }
 
 .account-add {
@@ -612,8 +640,8 @@ body {
 
 .sign-in-btn {
   padding: 8px 18px;
-  background: linear-gradient(135deg, #2563eb, #3b82f6);
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: linear-gradient(135deg, #2563eb, var(--blue));
+  border: 1px solid var(--blue-border);
   border-radius: var(--radius);
   color: white;
   font-family: var(--font-display);
@@ -622,12 +650,12 @@ body {
   letter-spacing: 1px;
   cursor: pointer;
   transition: all 0.2s;
-  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 2px 12px var(--blue-glow);
 }
 
 .sign-in-btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 20px var(--blue-glow);
 }
 
 .sign-in-btn:disabled {
@@ -637,8 +665,8 @@ body {
 
 .sign-in-sidebar {
   padding: 10px;
-  background: linear-gradient(135deg, #2563eb, #3b82f6);
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: linear-gradient(135deg, #2563eb, var(--blue));
+  border: 1px solid var(--blue-border);
   border-radius: var(--radius);
   color: white;
   font-family: var(--font-display);
@@ -1333,13 +1361,12 @@ body {
   color: var(--text);
 }
 
-.server-menu-danger {
-  color: rgba(239, 68, 68, 0.7) !important;
+.server-menu button.server-menu-danger {
+  color: var(--red-dim);
 }
-
-.server-menu-danger:hover {
-  background: rgba(239, 68, 68, 0.08) !important;
-  color: #ef4444 !important;
+.server-menu button.server-menu-danger:hover {
+  background: var(--red-glow);
+  color: var(--red);
 }
 
 .category-dropdown-wrapper {
@@ -1494,7 +1521,7 @@ body {
 }
 
 .server-status .dot.off {
-  background: var(--ansi-red);
+  background: var(--red);
 }
 
 .server-info {
@@ -1517,26 +1544,31 @@ body {
 }
 
 .server-players {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-dim);
   flex-shrink: 0;
 }
 
 .server-ping {
   font-family: var(--font-display);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   flex-shrink: 0;
   min-width: 40px;
   text-align: right;
 }
 
-.server-ping.online {
-  color: var(--accent);
+.server-ping.good {
+  color: var(--green);
 }
-
+.server-ping.ok {
+  color: var(--yellow);
+}
+.server-ping.bad {
+  color: var(--red);
+}
 .server-ping.offline {
-  color: var(--ansi-red);
+  color: var(--red-dim);
 }
 
 /* ═══ News Section (Home) ═══ */
@@ -1768,7 +1800,7 @@ body {
 }
 
 .install-card.active {
-  border-color: rgba(74, 222, 128, 0.2);
+  border-color: var(--green-border);
   background: rgba(74, 222, 128, 0.05);
 }
 
@@ -1890,7 +1922,7 @@ body {
 
 .install-action-btn.play {
   color: var(--accent);
-  border-color: rgba(74, 222, 128, 0.2);
+  border-color: var(--green-border);
 }
 
 .install-action-btn.play:hover {
@@ -2549,10 +2581,10 @@ body {
 
 .mock-banner {
   padding: 10px 16px;
-  background: rgba(255, 180, 50, 0.08);
-  border: 1px solid rgba(255, 180, 50, 0.2);
+  background: var(--yellow-glow);
+  border: 1px solid var(--yellow-border);
+  color: var(--yellow);
   border-radius: var(--radius);
-  color: rgba(255, 200, 100, 0.8);
 
   font-size: 12px;
   font-weight: 600;

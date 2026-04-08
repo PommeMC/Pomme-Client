@@ -84,7 +84,6 @@ function SortableServer({
   removeServer,
 }: {
   s: Server;
-  setPage: (page: string) => void;
   handleLaunch: (ip: string, version: string) => void;
   startEdit: (s: Server) => void;
   removeServer: (id: string) => void;
@@ -100,6 +99,13 @@ function SortableServer({
     transform: CSS.Transform.toString(transform),
     transition: isDragging ? "none" : transition,
   };
+
+  function pingClass(ping: number) {
+    if (ping < 0) return "offline";
+    if (ping < 100) return "good";
+    if (ping < 200) return "ok";
+    return "bad";
+  }
 
   return (
     <div
@@ -122,7 +128,7 @@ function SortableServer({
             ? `${numFormatter.format(s.players)}/${numFormatter.format(s.max_players)}`
             : "—"}
         </span>
-        <span className={`server-ping ${s.ping >= 0 ? "online" : "offline"}`}>
+        <span className={`server-ping ${pingClass(s.ping)}`}>
           {s.ping >= 0 ? `${numFormatter.format(s.ping)}ms` : "offline"}
         </span>
         <button
@@ -168,8 +174,7 @@ export default function ServersPage({
 }: {
   handleLaunch: (ip: string, version: string) => Promise<void>;
 }) {
-  const { servers, moveServer, removeServer, pingAll, setOpenedDialog, setPage } =
-    useAppStateContext();
+  const { servers, moveServer, removeServer, pingAll, setOpenedDialog } = useAppStateContext();
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
