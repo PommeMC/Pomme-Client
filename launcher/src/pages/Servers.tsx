@@ -121,8 +121,8 @@ function SortableServer({
             ? `${numFormatter.format(s.players)}/${numFormatter.format(s.max_players)}`
             : "—"}
         </span>
-        <span className="server-ping">
-          {s.ping >= 0 ? `${numFormatter.format(s.ping)}ms` : "—"}
+        <span className={`server-ping ${s.ping >= 0 ? "online" : "offline"}`}>
+          {s.ping >= 0 ? `${numFormatter.format(s.ping)}ms` : "offline"}
         </span>
         <button
           className="install-play-btn"
@@ -187,7 +187,7 @@ export default function ServersPage({
   return (
     <div className="page servers-page">
       <div className="servers-header">
-        <h2 className="servers-heading">SERVERS</h2>
+        <h2 className="page-heading">SERVERS</h2>
         <div className="servers-actions">
           <button className="servers-refresh-btn" onClick={pingAll}>
             <HiArrowPath />

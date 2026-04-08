@@ -5,7 +5,7 @@ export default function SettingsPage() {
 
   return (
     <div className="page settings-page">
-      <h2 className="settings-heading">SETTINGS</h2>
+      <h2 className="page-heading">SETTINGS</h2>
 
       <div className="settings-section">
         <h3 className="settings-section-title">General</h3>

@@ -79,7 +79,7 @@ export default function ModsPage() {
   return (
     <div className="page mock-page">
       <div className="mock-banner">This is a preview - functionality coming soon</div>
-      <h2 className="mock-heading">MODS</h2>
+      <h2 className="page-heading">MODS</h2>
       <div className="mods-toolbar">
         <div className="mods-search">
           <HiMagnifyingGlass className="mods-search-icon" />

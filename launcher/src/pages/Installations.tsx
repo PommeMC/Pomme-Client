@@ -46,7 +46,7 @@ export default function InstallationsPage({
   return (
     <div className="page installs-page">
       <div className="installs-header">
-        <h2 className="installs-heading">INSTALLATIONS</h2>
+        <h2 className="page-heading">INSTALLATIONS</h2>
         <button
           className="installs-new-btn"
           onClick={() => {

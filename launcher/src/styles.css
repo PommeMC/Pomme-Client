@@ -534,6 +534,14 @@ body {
   animation: fade-in 0.3s ease;
 }
 
+.page-heading {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--text-dim);
+  margin-bottom: 20px;
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;
@@ -1171,13 +1179,6 @@ body {
   margin-bottom: 12px;
 }
 
-.servers-heading {
-  font-family: var(--font-display);
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text);
-}
-
 .servers-actions {
   display: flex;
   gap: 8px;
@@ -1511,10 +1512,17 @@ body {
   font-family: var(--font-display);
   font-size: 11px;
   font-weight: 600;
-  color: var(--accent);
   flex-shrink: 0;
   min-width: 40px;
   text-align: right;
+}
+
+.server-ping.online {
+  color: var(--accent);
+}
+
+.server-ping.offline {
+  color: var(--ansi-red);
 }
 
 /* ═══ News Section (Home) ═══ */
@@ -1626,14 +1634,6 @@ body {
   padding: 24px 20px 32px;
 }
 
-.news-page-heading {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 4px;
-  color: var(--text-dim);
-  margin-bottom: 20px;
-}
-
 .news-grid-full {
   display: flex;
   flex-direction: column;
@@ -1706,13 +1706,6 @@ body {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 20px;
-}
-
-.installs-heading {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 4px;
-  color: var(--text-dim);
 }
 
 .installs-new-btn {
@@ -2397,14 +2390,6 @@ body {
   padding: 24px 20px 32px;
 }
 
-.settings-heading {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 4px;
-  color: var(--text-dim);
-  margin-bottom: 24px;
-}
-
 .settings-section {
   margin-bottom: 24px;
 }
@@ -2560,14 +2545,6 @@ body {
   letter-spacing: 1px;
   text-align: center;
   margin-bottom: 16px;
-}
-
-.mock-heading {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 4px;
-  color: var(--text-dim);
-  margin-bottom: 20px;
 }
 
 .mock-subheading {

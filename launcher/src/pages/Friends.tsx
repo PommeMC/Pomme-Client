@@ -4,7 +4,7 @@ export default function FriendsPage() {
   return (
     <div className="page mock-page">
       <div className="mock-banner">This is a preview - functionality coming soon</div>
-      <h2 className="mock-heading">FRIENDS</h2>
+      <h2 className="page-heading">FRIENDS</h2>
       <h3 className="mock-subheading">Online - 3</h3>
       <div className="mock-list">
         {[
