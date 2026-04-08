@@ -258,6 +258,7 @@ function App() {
       setStatus,
       setDownloadProgress,
       downloadedVersions,
+      setOpenedDialog,
       account?.uuid,
       launcherSettings.launchWithConsole,
     ],

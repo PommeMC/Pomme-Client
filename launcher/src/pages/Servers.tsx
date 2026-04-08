@@ -45,7 +45,7 @@ function ServerMenu({
       const rect = anchorRef.current.getBoundingClientRect();
       setPos({ top: rect.bottom + 4, left: rect.right - 120 });
     }
-  }, []);
+  }, [anchorRef]);
 
   return createPortal(
     <div
