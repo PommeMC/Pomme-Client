@@ -3,16 +3,33 @@ use std::fmt::Display;
 use azalea_buf::BufReadError;
 use azalea_chat::text_component::TextComponent;
 use azalea_core::delta::AzBuf;
-use azalea_protocol::packets::game::c_explode::Weighted;
 use azalea_registry::identifier::Identifier;
 
-use crate::sound::SoundEngine;
+use crate::{sound::SoundEngine, util::rng::JavaRng};
 
-pub struct SoundSource {}
+pub trait Weighted<T> {
+    fn get_weight(&self) -> i32;
+    fn get_sound(&self, random: JavaRng) -> &T;
+    fn preload_if_required(&mut self, sound_engine: &SoundEngine);
+}
+
+pub enum SoundSource {
+    MASTER,
+    MUSIC,
+    RECORDS,
+    WEATHER,
+    BLOCKS,
+    HOSTILE,
+    NEUTRAL,
+    PLAYERS,
+    AMBIENT,
+    VOICE,
+    UI,
+}
 
 #[derive(Default)]
 pub struct WeighedSoundEvents {
-    list: Vec<Weighted<Sound>>,
+    list: Vec<Sound>,
     subtitle: TextComponent,
 }
 
@@ -21,27 +38,45 @@ impl WeighedSoundEvents {
         WeighedSoundEvents::default()
     }
 
-    pub fn get_weight(&self) -> i32 {
-        let mut sum = 0;
-
-        for sound in &self.list {
-            sum += sound.value.get_weight();
-        }
-
-        sum
-    }
-
-    pub fn add_sound(&mut self, sound: Weighted<Sound>) {
+    pub fn add_sound(&mut self, sound: Sound) {
         self.list.push(sound);
     }
 
     pub fn get_subtitle(&self) -> &TextComponent {
         return &self.subtitle;
     }
+}
 
-    pub fn preload_if_required(&mut self, engine: &SoundEngine) {
+impl Weighted<Sound> for WeighedSoundEvents {
+    fn get_weight(&self) -> i32 {
+        let mut sum = 0;
+
+        for sound in &self.list {
+            sum += sound.get_weight();
+        }
+
+        sum
+    }
+
+    fn get_sound(&self, mut random: JavaRng) -> &Sound {
+        let weight = self.get_weight();
+
+        if !self.list.is_empty() && weight != 0 {
+            for weighted in &self.list {
+                let index = random.next_int(weight);
+
+                if index < 0 {
+                    return &weighted.get_sound(random);
+                }
+            }
+        }
+
+        &*super::sound_manager::EMPTY_SOUND
+    }
+
+    fn preload_if_required(&mut self, engine: &SoundEngine) {
         for weighted in &mut self.list {
-            weighted.value.preload_if_required(engine);
+            weighted.preload_if_required(engine);
         }
     }
 }
@@ -155,6 +190,11 @@ impl Sound {
         }
     }
 
+    pub fn get_path(&self) -> Identifier {
+        // SOUND_LISTER.id_to_file(&self.location)
+        unimplemented!()
+    }
+
     pub fn get_location(&self) -> &Identifier {
         &self.location
     }
@@ -165,10 +205,6 @@ impl Sound {
 
     pub fn get_pitch(&self) -> f32 {
         self.pitch
-    }
-
-    pub fn get_weight(&self) -> i32 {
-        self.weight
     }
 
     pub fn should_stream(&self) -> bool {
@@ -186,8 +222,18 @@ impl Sound {
     pub fn to_string(&self) -> String {
         format!("Sound[{}]", self.location)
     }
+}
 
-    pub fn preload_if_required(&mut self, engine: &SoundEngine) {
+impl Weighted<Sound> for Sound {
+    fn get_weight(&self) -> i32 {
+        self.weight
+    }
+
+    fn get_sound(&self, _random: JavaRng) -> &Sound {
+        self
+    }
+
+    fn preload_if_required(&mut self, engine: &SoundEngine) {
         todo!();
     }
 }

@@ -4,7 +4,6 @@ pub mod sender;
 
 use std::sync::Arc;
 
-use crate::sound::sound_instance::SoundInstance;
 use azalea_block::BlockState;
 use azalea_core::heightmap_kind::HeightmapKind;
 use azalea_core::position::{BlockPos, ChunkPos};

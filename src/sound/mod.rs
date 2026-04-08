@@ -1,6 +1,7 @@
 use tracing::{debug, warn};
 
 pub mod sound_instance;
+pub mod sound_manager;
 pub mod sounds;
 
 use crate::{assets::AssetIndex, sound::sound_instance::SoundInstance};

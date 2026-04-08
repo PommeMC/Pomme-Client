@@ -1,6 +1,7 @@
 mod args;
 mod assets;
 mod benchmark;
+mod core;
 mod dirs;
 mod discord;
 mod entity;
@@ -10,6 +11,7 @@ mod physics;
 mod player;
 mod renderer;
 mod resource_pack;
+mod resources;
 mod sound;
 mod ui;
 mod util;
