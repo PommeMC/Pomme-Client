@@ -184,12 +184,21 @@ export default function ServersPage({
     }
   };
 
+  const [spinning, setSpinning] = useState(false);
+
   return (
     <div className="page servers-page">
       <div className="servers-header">
         <h2 className="page-heading">SERVERS</h2>
         <div className="servers-actions">
-          <button className="servers-refresh-btn" onClick={pingAll}>
+          <button
+            className={`servers-refresh-btn ${spinning ? "spinning" : ""}`}
+            onClick={() => {
+              setSpinning(true);
+              pingAll();
+            }}
+            onAnimationEnd={() => setSpinning(false)}
+          >
             <HiArrowPath />
           </button>
           <button

@@ -1190,7 +1190,7 @@ body {
   padding: 8px;
   background: var(--glass);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   color: var(--text-muted);
   cursor: pointer;
   font-size: 14px;
@@ -1198,8 +1198,22 @@ body {
 }
 
 .servers-refresh-btn:hover {
-  color: var(--text);
+  background: var(--glass-hover);
   border-color: var(--border-light);
+  color: var(--text);
+}
+
+.servers-refresh-btn.spinning svg {
+  animation: spin-once 0.5s ease;
+}
+
+@keyframes spin-once {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .servers-add-btn {
