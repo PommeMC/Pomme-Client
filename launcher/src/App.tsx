@@ -34,7 +34,6 @@ function App() {
     accounts,
     setAccounts,
     setActiveIndex,
-    server,
     setVersions,
     downloadedVersions,
     setLaunchingStatus,
@@ -191,74 +190,78 @@ function App() {
     [downloadedVersions, setDownloadedVersions, setLaunchingStatus, setStatus, setDownloadProgress],
   );
 
-  const handleLaunch = useCallback(async () => {
-    if (!activeInstall) {
-      setStatus("No installation selected");
-      setTimeout(() => setStatus(""), 3000);
-      return;
-    }
+  const handleLaunch = useCallback(
+    async (serverIp?: string, serverVersion?: string) => {
+      if (!activeInstall) {
+        setStatus("No installation selected");
+        setTimeout(() => setStatus(""), 3000);
+        return;
+      }
 
-    if (!(await ensureAssets(activeInstall.version))) {
-      return;
-    }
+      if (!(await ensureAssets(activeInstall.version))) {
+        return;
+      }
 
-    const unlisten = await listen<{
-      code: number | null;
-      signal: number | null;
-      last_line: string | null;
-    }>("game_exited", (event) => {
-      const { code, signal, last_line } = event.payload;
-      const SIGNAL_NAMES: Record<number, string> = {
-        4: "SIGILL",
-        6: "SIGABRT",
-        7: "SIGBUS",
-        8: "SIGFPE",
-        11: "SIGSEGV",
-        16: "SIGSTKFLT",
-      };
-      const reason =
-        signal !== null ? `signal ${SIGNAL_NAMES[signal] ?? signal}` : `code ${code ?? "unknown"}`;
-      setOpenedDialog({
-        name: "alert_dialog",
-        props: {
-          title: `Game exited (${reason})`,
-          message: last_line ?? "The game exited unexpectedly.",
-        },
+      const unlisten = await listen<{
+        code: number | null;
+        signal: number | null;
+        last_line: string | null;
+      }>("game_exited", (event) => {
+        const { code, signal, last_line } = event.payload;
+        const SIGNAL_NAMES: Record<number, string> = {
+          4: "SIGILL",
+          6: "SIGABRT",
+          7: "SIGBUS",
+          8: "SIGFPE",
+          11: "SIGSEGV",
+          16: "SIGSTKFLT",
+        };
+        const reason =
+          signal !== null
+            ? `signal ${SIGNAL_NAMES[signal] ?? signal}`
+            : `code ${code ?? "unknown"}`;
+        setOpenedDialog({
+          name: "alert_dialog",
+          props: {
+            title: `Game exited (${reason})`,
+            message: last_line ?? "The game exited unexpectedly.",
+          },
+        });
+        unlisten();
       });
-      unlisten();
-    });
 
-    try {
-      setLaunchingStatus("launching");
-      setStatus("Launching Pomme...");
-      const result = await invoke<string>("launch_game", {
-        uuid: account?.uuid || null,
-        server: server || null,
-        debugEnabled: launcherSettings.launchWithConsole || null,
-        version: activeInstall.version,
-        install_id: activeInstall.id,
-      });
-      setStatus(result);
-    } catch (e) {
-      setStatus(`${e}`);
-    } finally {
-      setDownloadProgress(null);
-      setLaunchingStatus(null);
-      setTimeout(() => {
-        setStatus("");
-      }, 3000);
-    }
-  }, [
-    ensureAssets,
-    activeInstall,
-    setLaunchingStatus,
-    setStatus,
-    setDownloadProgress,
-    downloadedVersions,
-    account?.uuid,
-    server,
-    launcherSettings.launchWithConsole,
-  ]);
+      try {
+        setLaunchingStatus("launching");
+        setStatus("Launching Pomme...");
+        const result = await invoke<string>("launch_game", {
+          installId: activeInstall.id,
+          uuid: account?.uuid || null,
+          serverIp: serverIp || null,
+          override_version: serverVersion || null,
+          debugEnabled: launcherSettings.launchWithConsole || null,
+        });
+        setStatus(result);
+      } catch (e) {
+        setStatus(`${e}`);
+      } finally {
+        setDownloadProgress(null);
+        setLaunchingStatus(null);
+        setTimeout(() => {
+          setStatus("");
+        }, 3000);
+      }
+    },
+    [
+      ensureAssets,
+      activeInstall,
+      setLaunchingStatus,
+      setStatus,
+      setDownloadProgress,
+      downloadedVersions,
+      account?.uuid,
+      launcherSettings.launchWithConsole,
+    ],
+  );
 
   const dialogDragStartedInside = useRef(false);
 
@@ -357,7 +360,11 @@ function App() {
 
           {page === "news" && <NewsPage openPatchNote={openPatchNote} />}
 
-          {page === "servers" && <ServersPage handleLaunch={handleLaunch} />}
+          {page === "servers" && (
+            <ServersPage
+              handleLaunch={(ip: string, version: string) => handleLaunch(ip, version)}
+            />
+          )}
 
           {page === "friends" && <FriendsPage />}
 

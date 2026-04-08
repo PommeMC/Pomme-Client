@@ -273,11 +273,11 @@ pub async fn get_downloaded_versions() -> Vec<String> {
 #[tauri::command]
 pub async fn launch_game(
     app: AppHandle,
-    version: String,
+    install_id: String,
     uuid: Option<String>,
-    server: Option<String>,
+    server_ip: Option<String>,
+    override_version: Option<String>,
     debug_enabled: Option<bool>,
-    install_path: Option<String>,
 ) -> Result<String, String> {
     let exe = find_client_binary()?;
     let account = uuid.as_deref().and_then(crate::auth::try_restore);
@@ -291,6 +291,11 @@ pub async fn launch_game(
         .collect();
     let token_path = std::env::temp_dir().join("pomme_launch_token");
     std::fs::write(&token_path, &token).map_err(|e| e.to_string())?;
+
+    let install = installations::registry::find_by_id(&installations::Id::from(install_id))
+        .map_err(|e| e.to_string())?;
+    let version = override_version.unwrap_or(install.version.into());
+    let install_path: String = install.directory.into();
 
     let mut cmd = tokio::process::Command::new(&exe);
     cmd.stdout(Stdio::piped());
@@ -333,12 +338,7 @@ pub async fn launch_game(
         .arg("--launch-token")
         .arg(token_path.to_string_lossy().as_ref())
         .arg("--game-dir")
-        .arg(install_path.unwrap_or_else(|| {
-            storage::installations_dir()
-                .join("default")
-                .to_string_lossy()
-                .into_owned()
-        }));
+        .arg(install_path);
 
     if let Some(acc) = &account {
         cmd.arg("--uuid")
@@ -346,8 +346,8 @@ pub async fn launch_game(
             .arg("--access-token")
             .arg(&acc.access_token);
     }
-    if let Some(server) = &server {
-        cmd.arg("--quick-access-server").arg(server);
+    if let Some(server_ip) = &server_ip {
+        cmd.arg("--quick-access-server").arg(server_ip);
     }
 
     #[cfg(debug_assertions)]

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createContext, createElement, ReactNode, useContext, useEffect, useState } from "react";
 import { useDropdown } from "./hooks";
+import { useInstallations } from "./installations.ts";
 import { useServers } from "./servers";
 import {
   AuthAccount,
@@ -12,7 +13,6 @@ import {
   Page,
   PatchNote,
 } from "./types";
-import { useInstallations } from "./installations.ts";
 
 const useLauncherSettings = () => {
   const [launcherSettings, setLauncherSettings] = useState<LauncherSettings>({
@@ -67,8 +67,6 @@ const useAppState = () => {
   const [activeIndex, setActiveIndex] = useState(0);
   const accountDropdown = useDropdown();
 
-  const [server, setServer] = useState("");
-
   const [modView, setModView] = useState<"list" | "grid">("list");
   const [modSearch, setModSearch] = useState("");
   const [modFilter, setModFilter] = useState("all");
@@ -98,8 +96,6 @@ const useAppState = () => {
     setAccounts,
     activeIndex,
     setActiveIndex,
-    server,
-    setServer,
     modView,
     setModView,
     modSearch,

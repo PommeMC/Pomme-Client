@@ -84,7 +84,8 @@ function SortableServer({
   removeServer,
 }: {
   s: Server;
-  handleLaunch: (ip: string) => void;
+  setPage: (page: string) => void;
+  handleLaunch: (ip: string, version: string) => void;
   startEdit: (s: Server) => void;
   removeServer: (id: string) => void;
 }) {
@@ -127,7 +128,7 @@ function SortableServer({
         <button
           className="install-play-btn"
           onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => handleLaunch(s.ip)}
+          onClick={() => handleLaunch(s.ip, s.version)}
         >
           <HiPlay /> Join
         </button>
@@ -165,9 +166,10 @@ function SortableServer({
 export default function ServersPage({
   handleLaunch,
 }: {
-  handleLaunch: (ip: string) => Promise<void>;
+  handleLaunch: (ip: string, version: string) => Promise<void>;
 }) {
-  const { servers, moveServer, removeServer, pingAll, setOpenedDialog } = useAppStateContext();
+  const { servers, moveServer, removeServer, pingAll, setOpenedDialog, setPage } =
+    useAppStateContext();
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
