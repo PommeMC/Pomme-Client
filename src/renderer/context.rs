@@ -1,8 +1,9 @@
+use std::cell::Cell;
 use std::ffi::{CStr, CString};
 use std::sync::{Arc, Mutex};
 
 use ash::ext::debug_utils;
-use ash::khr::{surface, swapchain};
+use ash::khr::{dynamic_rendering, push_descriptor, surface, swapchain, synchronization2};
 use ash::vk;
 use gpu_allocator::vulkan::{Allocator, AllocatorCreateDesc};
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
@@ -39,12 +40,16 @@ pub struct VulkanContext {
     pub graphics_family: u32,
     pub present_family: u32,
     pub swapchain_loader: swapchain::Device,
+    pub push_descriptor: push_descriptor::Device,
+    pub dynamic_rendering: dynamic_rendering::Device,
+    pub synchronization2: synchronization2::Device,
     pub allocator: std::mem::ManuallyDrop<Arc<Mutex<Allocator>>>,
     pub command_pool: vk::CommandPool,
     pub command_buffers: Vec<vk::CommandBuffer>,
     pub image_available: Vec<vk::Semaphore>,
     pub render_finished: Vec<vk::Semaphore>,
-    pub in_flight_fences: Vec<vk::Fence>,
+    pub timeline_semaphore: vk::Semaphore,
+    pub timeline_value: Cell<u64>,
     pub frame_index: usize,
     pub gpu_name: String,
     pub vulkan_version: String,
@@ -172,14 +177,27 @@ impl VulkanContext {
             })
             .collect();
 
-        let mut device_extensions = vec![swapchain::NAME.as_ptr()];
+        let mut device_extensions = vec![
+            swapchain::NAME.as_ptr(),
+            push_descriptor::NAME.as_ptr(),
+            dynamic_rendering::NAME.as_ptr(),
+            synchronization2::NAME.as_ptr(),
+        ];
         if cfg!(target_os = "macos") {
             device_extensions.push(ash::khr::portability_subset::NAME.as_ptr());
         }
 
+        let mut vk13_features = vk::PhysicalDeviceVulkan13Features::default()
+            .dynamic_rendering(true)
+            .synchronization2(true);
+        let mut vk12_features =
+            vk::PhysicalDeviceVulkan12Features::default().timeline_semaphore(true);
+
         let device_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_infos)
-            .enabled_extension_names(&device_extensions);
+            .enabled_extension_names(&device_extensions)
+            .push_next(&mut vk13_features)
+            .push_next(&mut vk12_features);
 
         let device = unsafe { instance.create_device(physical_device, &device_info, None)? };
 
@@ -187,6 +205,9 @@ impl VulkanContext {
         let present_queue = unsafe { device.get_device_queue(present_family, 0) };
 
         let swapchain_loader = swapchain::Device::new(&instance, &device);
+        let push_descriptor_loader = push_descriptor::Device::new(&instance, &device);
+        let dynamic_rendering_loader = dynamic_rendering::Device::new(&instance, &device);
+        let synchronization2_loader = synchronization2::Device::new(&instance, &device);
 
         let allocator = Allocator::new(&AllocatorCreateDesc {
             instance: instance.clone(),
@@ -211,18 +232,20 @@ impl VulkanContext {
 
         let mut image_available = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
         let mut render_finished = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
-        let mut in_flight_fences = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
 
         let sem_info = vk::SemaphoreCreateInfo::default();
-        let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
-
         for _ in 0..MAX_FRAMES_IN_FLIGHT {
             unsafe {
                 image_available.push(device.create_semaphore(&sem_info, None)?);
                 render_finished.push(device.create_semaphore(&sem_info, None)?);
-                in_flight_fences.push(device.create_fence(&fence_info, None)?);
             }
         }
+
+        let mut timeline_type = vk::SemaphoreTypeCreateInfo::default()
+            .semaphore_type(vk::SemaphoreType::TIMELINE)
+            .initial_value(0);
+        let timeline_sem_info = vk::SemaphoreCreateInfo::default().push_next(&mut timeline_type);
+        let timeline_semaphore = unsafe { device.create_semaphore(&timeline_sem_info, None)? };
 
         Ok(Self {
             entry,
@@ -236,12 +259,16 @@ impl VulkanContext {
             graphics_family,
             present_family,
             swapchain_loader,
+            push_descriptor: push_descriptor_loader,
+            dynamic_rendering: dynamic_rendering_loader,
+            synchronization2: synchronization2_loader,
             allocator,
             command_pool,
             command_buffers,
             image_available,
             render_finished,
-            in_flight_fences,
+            timeline_semaphore,
+            timeline_value: Cell::new(0),
             gpu_name: dev_name,
             vulkan_version,
             frame_index: 0,
@@ -260,9 +287,7 @@ impl Drop for VulkanContext {
         unsafe {
             let _ = self.device.device_wait_idle();
 
-            for &fence in &self.in_flight_fences {
-                self.device.destroy_fence(fence, None);
-            }
+            self.device.destroy_semaphore(self.timeline_semaphore, None);
             for &sem in &self.render_finished {
                 self.device.destroy_semaphore(sem, None);
             }

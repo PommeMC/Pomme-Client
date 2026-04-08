@@ -1,6 +1,7 @@
 pub mod camera;
 pub mod chunk;
 mod context;
+pub(crate) mod destruction_queue;
 pub mod entity_model;
 pub mod pipelines;
 pub(crate) mod shader;
@@ -97,6 +98,7 @@ pub struct Renderer {
     chunk_border_pipeline: pipelines::chunk_borders::ChunkBorderPipeline,
     item_entity_pipeline: pipelines::item_entity::ItemEntityPipeline,
     chunk_buffers: ChunkBufferStore,
+    destruction_queue: destruction_queue::DestructionQueue,
     swapchain_dirty: bool,
     width: u32,
     height: u32,
@@ -138,11 +140,15 @@ impl Renderer {
             vk::SwapchainKHR::null(),
         )?;
 
+        let color_format = swapchain_state.format.format;
+        let depth_format = swapchain_state.depth_format();
+
         let mut menu_pipeline = MenuOverlayPipeline::new(
             &ctx.device,
             ctx.graphics_queue,
             ctx.command_pool,
-            swapchain_state.render_pass,
+            color_format,
+            depth_format,
             &ctx.allocator,
             jar_assets_dir,
             asset_index,
@@ -181,7 +187,8 @@ impl Renderer {
 
         let chunk_pipeline = ChunkPipeline::new(
             &ctx.device,
-            swapchain_state.render_pass,
+            color_format,
+            depth_format,
             &ctx.allocator,
             &atlas,
         );
@@ -190,7 +197,8 @@ impl Renderer {
             &ctx.device,
             ctx.graphics_queue,
             ctx.command_pool,
-            swapchain_state.render_pass,
+            color_format,
+            depth_format,
             &ctx.allocator,
             jar_assets_dir,
             asset_index,
@@ -200,7 +208,8 @@ impl Renderer {
             &ctx.device,
             ctx.graphics_queue,
             ctx.command_pool,
-            swapchain_state.render_pass,
+            color_format,
+            depth_format,
             &ctx.allocator,
             jar_assets_dir,
             asset_index,
@@ -212,7 +221,8 @@ impl Renderer {
             &ctx.device,
             ctx.graphics_queue,
             ctx.command_pool,
-            swapchain_state.render_pass,
+            color_format,
+            depth_format,
             &ctx.allocator,
             jar_assets_dir,
             asset_index,
@@ -222,7 +232,8 @@ impl Renderer {
             &ctx.device,
             ctx.graphics_queue,
             ctx.command_pool,
-            swapchain_state.render_pass,
+            color_format,
+            depth_format,
             &ctx.allocator,
             jar_assets_dir,
             asset_index,
@@ -232,7 +243,8 @@ impl Renderer {
 
         let skin_preview = SkinPreviewPipeline::new(
             &ctx.device,
-            swapchain_state.render_pass,
+            color_format,
+            depth_format,
             &ctx.allocator,
             hand_pipeline.skin_view(),
             hand_pipeline.skin_sampler(),
@@ -250,7 +262,8 @@ impl Renderer {
             &ctx.device,
             ctx.graphics_queue,
             ctx.command_pool,
-            swapchain_state.render_pass,
+            color_format,
+            depth_format,
             &ctx.allocator,
             jar_assets_dir,
             asset_index,
@@ -258,7 +271,8 @@ impl Renderer {
 
         let chunk_border_pipeline = pipelines::chunk_borders::ChunkBorderPipeline::new(
             &ctx.device,
-            swapchain_state.render_pass,
+            color_format,
+            depth_format,
             &ctx.allocator,
         );
 
@@ -272,7 +286,8 @@ impl Renderer {
 
         let item_entity_pipeline = pipelines::item_entity::ItemEntityPipeline::new(
             &ctx.device,
-            swapchain_state.render_pass,
+            color_format,
+            depth_format,
             &ctx.allocator,
             &atlas,
         );
@@ -297,6 +312,7 @@ impl Renderer {
             chunk_border_pipeline,
             item_entity_pipeline,
             chunk_buffers,
+            destruction_queue: destruction_queue::DestructionQueue::new(),
             swapchain_dirty: false,
             width: size.width.max(1),
             height: size.height.max(1),
@@ -313,7 +329,6 @@ impl Renderer {
         progress: f32,
         status: &str,
     ) -> Result<(), RendererError> {
-        let fence = ctx.in_flight_fences[0];
         let image_available = ctx.image_available[0];
         let render_finished = ctx.render_finished[0];
         let cmd = ctx.command_buffers[0];
@@ -363,7 +378,18 @@ impl Renderer {
         ];
 
         unsafe {
-            ctx.device.wait_for_fences(&[fence], true, u64::MAX)?;
+            let wait_value = ctx
+                .timeline_value
+                .get()
+                .saturating_sub(MAX_FRAMES_IN_FLIGHT as u64 - 1);
+            if wait_value > 0 {
+                let sems = [ctx.timeline_semaphore];
+                let vals = [wait_value];
+                let wait_info = vk::SemaphoreWaitInfo::default()
+                    .semaphores(&sems)
+                    .values(&vals);
+                ctx.device.wait_semaphores(&wait_info, u64::MAX)?;
+            }
 
             let image_index = match ctx.swapchain_loader.acquire_next_image(
                 swapchain.swapchain,
@@ -374,8 +400,6 @@ impl Renderer {
                 Ok((idx, _)) => idx,
                 Err(_) => return Ok(()),
             };
-
-            ctx.device.reset_fences(&[fence])?;
             ctx.device
                 .reset_command_buffer(cmd, vk::CommandBufferResetFlags::empty())?;
 
@@ -383,31 +407,64 @@ impl Renderer {
                 .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
             ctx.device.begin_command_buffer(cmd, &begin_info)?;
 
-            let clear_values = [
-                vk::ClearValue {
+            util::transition_image_layout(
+                &ctx.synchronization2,
+                cmd,
+                swapchain.images[image_index as usize],
+                vk::ImageLayout::UNDEFINED,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::PipelineStageFlags2::TOP_OF_PIPE,
+                vk::AccessFlags2::empty(),
+                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                vk::ImageAspectFlags::COLOR,
+            );
+            util::transition_image_layout(
+                &ctx.synchronization2,
+                cmd,
+                swapchain.depth_image,
+                vk::ImageLayout::UNDEFINED,
+                vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                vk::PipelineStageFlags2::TOP_OF_PIPE,
+                vk::AccessFlags2::empty(),
+                vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS,
+                vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
+                vk::ImageAspectFlags::DEPTH,
+            );
+
+            let color_attachment = vk::RenderingAttachmentInfo::default()
+                .image_view(swapchain.image_views[image_index as usize])
+                .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                .load_op(vk::AttachmentLoadOp::CLEAR)
+                .store_op(vk::AttachmentStoreOp::STORE)
+                .clear_value(vk::ClearValue {
                     color: vk::ClearColorValue {
                         float32: [0.0, 0.0, 0.0, 1.0],
                     },
-                },
-                vk::ClearValue {
+                });
+            let depth_attachment = vk::RenderingAttachmentInfo::default()
+                .image_view(swapchain.depth_view)
+                .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                .load_op(vk::AttachmentLoadOp::CLEAR)
+                .store_op(vk::AttachmentStoreOp::DONT_CARE)
+                .clear_value(vk::ClearValue {
                     depth_stencil: vk::ClearDepthStencilValue {
                         depth: 1.0,
                         stencil: 0,
                     },
-                },
-            ];
-
-            let render_pass_info = vk::RenderPassBeginInfo::default()
-                .render_pass(swapchain.render_pass)
-                .framebuffer(swapchain.framebuffers[image_index as usize])
+                });
+            let color_attachments = [color_attachment];
+            let rendering_info = vk::RenderingInfo::default()
                 .render_area(vk::Rect2D {
                     offset: vk::Offset2D { x: 0, y: 0 },
                     extent: swapchain.extent,
                 })
-                .clear_values(&clear_values);
+                .layer_count(1)
+                .color_attachments(&color_attachments)
+                .depth_attachment(&depth_attachment);
 
-            ctx.device
-                .cmd_begin_render_pass(cmd, &render_pass_info, vk::SubpassContents::INLINE);
+            ctx.dynamic_rendering
+                .cmd_begin_rendering(cmd, &rendering_info);
 
             let viewport = vk::Viewport {
                 x: 0.0,
@@ -425,29 +482,51 @@ impl Renderer {
             };
             ctx.device.cmd_set_scissor(cmd, 0, &[scissor]);
 
-            menu.draw(&ctx.device, cmd, sw, sh, &elements);
+            menu.draw(&ctx.device, &ctx.push_descriptor, cmd, sw, sh, &elements);
 
-            ctx.device.cmd_end_render_pass(cmd);
+            ctx.dynamic_rendering.cmd_end_rendering(cmd);
+
+            util::transition_image_layout(
+                &ctx.synchronization2,
+                cmd,
+                swapchain.images[image_index as usize],
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::ImageLayout::PRESENT_SRC_KHR,
+                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
+                vk::AccessFlags2::empty(),
+                vk::ImageAspectFlags::COLOR,
+            );
+
             ctx.device.end_command_buffer(cmd)?;
 
-            let wait_semaphores = [image_available];
+            ctx.timeline_value.set(ctx.timeline_value.get() + 1);
+            let wait_sems = [image_available];
             let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-            let signal_semaphores = [render_finished];
+            let signal_sems = [render_finished, ctx.timeline_semaphore];
+            let signal_values = [0u64, ctx.timeline_value.get()];
+            let wait_values = [0u64];
             let cmd_buffers = [cmd];
+            let mut timeline_info = vk::TimelineSemaphoreSubmitInfo::default()
+                .signal_semaphore_values(&signal_values)
+                .wait_semaphore_values(&wait_values);
 
             let submit_info = vk::SubmitInfo::default()
-                .wait_semaphores(&wait_semaphores)
+                .wait_semaphores(&wait_sems)
                 .wait_dst_stage_mask(&wait_stages)
                 .command_buffers(&cmd_buffers)
-                .signal_semaphores(&signal_semaphores);
+                .signal_semaphores(&signal_sems)
+                .push_next(&mut timeline_info);
 
             ctx.device
-                .queue_submit(ctx.graphics_queue, &[submit_info], fence)?;
+                .queue_submit(ctx.graphics_queue, &[submit_info], vk::Fence::null())?;
 
+            let present_sems = [render_finished];
             let swapchains = [swapchain.swapchain];
             let image_indices = [image_index];
             let present_info = vk::PresentInfoKHR::default()
-                .wait_semaphores(&signal_semaphores)
+                .wait_semaphores(&present_sems)
                 .swapchains(&swapchains)
                 .image_indices(&image_indices);
 
@@ -455,7 +534,12 @@ impl Renderer {
                 .swapchain_loader
                 .queue_present(ctx.present_queue, &present_info);
 
-            ctx.device.wait_for_fences(&[fence], true, u64::MAX)?;
+            let timeline_sems = [ctx.timeline_semaphore];
+            let timeline_vals = [ctx.timeline_value.get()];
+            let wait_info = vk::SemaphoreWaitInfo::default()
+                .semaphores(&timeline_sems)
+                .values(&timeline_vals);
+            ctx.device.wait_semaphores(&wait_info, u64::MAX)?;
         }
 
         Ok(())
@@ -500,29 +584,17 @@ impl Renderer {
             &self.ctx.allocator,
         );
 
+        let color_format = self.swapchain.format.format;
+        let depth_format = self.swapchain.depth_format();
+
         self.chunk_pipeline = ChunkPipeline::new(
             &self.ctx.device,
-            self.swapchain.render_pass,
+            color_format,
+            depth_format,
             &self.ctx.allocator,
             &self.atlas,
         );
 
-        self.hand_pipeline
-            .recreate_pipeline(&self.ctx.device, self.swapchain.render_pass);
-        self.block_overlay_pipeline
-            .recreate_pipeline(&self.ctx.device, self.swapchain.render_pass);
-        self.sky_pipeline
-            .recreate_pipeline(&self.ctx.device, self.swapchain.render_pass);
-        self.panorama_pipeline
-            .recreate_pipeline(&self.ctx.device, self.swapchain.render_pass);
-        self.menu_pipeline
-            .recreate_pipeline(&self.ctx.device, self.swapchain.render_pass);
-        self.skin_preview
-            .recreate_pipeline(&self.ctx.device, self.swapchain.render_pass);
-        self.entity_renderer
-            .recreate_pipeline(&self.ctx.device, self.swapchain.render_pass);
-        self.item_entity_pipeline
-            .recreate_pipeline(&self.ctx.device, self.swapchain.render_pass);
         self.blur_pipeline.resize(
             &self.ctx.device,
             &self.ctx.allocator,
@@ -647,11 +719,15 @@ impl Renderer {
     }
 
     pub fn wait_for_all_frames(&self) {
-        unsafe {
-            let _ = self
-                .ctx
-                .device
-                .wait_for_fences(&self.ctx.in_flight_fences, true, u64::MAX);
+        if self.ctx.timeline_value.get() > 0 {
+            let sems = [self.ctx.timeline_semaphore];
+            let vals = [self.ctx.timeline_value.get()];
+            let wait_info = vk::SemaphoreWaitInfo::default()
+                .semaphores(&sems)
+                .values(&vals);
+            unsafe {
+                let _ = self.ctx.device.wait_semaphores(&wait_info, u64::MAX);
+            }
         }
     }
 
@@ -831,7 +907,8 @@ impl Renderer {
                 );
                 self.skin_preview = SkinPreviewPipeline::new(
                     &self.ctx.device,
-                    self.swapchain.render_pass,
+                    self.swapchain.format.format,
+                    self.swapchain.depth_format(),
                     &self.ctx.allocator,
                     self.hand_pipeline.skin_view(),
                     self.hand_pipeline.skin_sampler(),
@@ -893,16 +970,30 @@ impl Renderer {
         }
 
         let frame = self.ctx.frame_index;
-        let fence = self.ctx.in_flight_fences[frame];
         let image_available = self.ctx.image_available[frame];
         let render_finished = self.ctx.render_finished[frame];
         let cmd = self.ctx.command_buffers[frame];
 
         let t_fence = std::time::Instant::now();
-        unsafe {
-            self.ctx.device.wait_for_fences(&[fence], true, u64::MAX)?;
+        let wait_value = self
+            .ctx
+            .timeline_value
+            .get()
+            .saturating_sub(MAX_FRAMES_IN_FLIGHT as u64 - 1);
+        if wait_value > 0 {
+            let sems = [self.ctx.timeline_semaphore];
+            let vals = [wait_value];
+            let wait_info = vk::SemaphoreWaitInfo::default()
+                .semaphores(&sems)
+                .values(&vals);
+            unsafe {
+                self.ctx.device.wait_semaphores(&wait_info, u64::MAX)?;
+            }
         }
         let fence_ms = t_fence.elapsed().as_secs_f32() * 1000.0;
+
+        self.destruction_queue
+            .rotate(&self.ctx.device, &self.ctx.allocator);
 
         let t_acquire = std::time::Instant::now();
         let image_index = match unsafe {
@@ -937,7 +1028,6 @@ impl Renderer {
         }
 
         unsafe {
-            self.ctx.device.reset_fences(&[fence])?;
             self.ctx
                 .device
                 .reset_command_buffer(cmd, vk::CommandBufferResetFlags::empty())?;
@@ -947,58 +1037,83 @@ impl Renderer {
             self.ctx.device.begin_command_buffer(cmd, &begin_info)?;
 
             if matches!(&mode, RenderMode::World { .. }) {
-                let frustum = self.camera.frustum_planes();
+                let frustum = self.camera.cull_frustum_planes();
                 let cam_pos = [
                     self.camera.position.x,
                     self.camera.position.y,
                     self.camera.position.z,
                 ];
-                self.chunk_buffers
-                    .dispatch_cull(&self.ctx.device, cmd, frame, &frustum, cam_pos);
+                self.chunk_buffers.dispatch_cull(
+                    &self.ctx.device,
+                    &self.ctx.push_descriptor,
+                    cmd,
+                    frame,
+                    &frustum,
+                    cam_pos,
+                );
             }
 
-            let clear_values = [
-                vk::ClearValue {
+            let swapchain_image = self.swapchain.images[image_index as usize];
+
+            util::transition_image_layout(
+                &self.ctx.synchronization2,
+                cmd,
+                swapchain_image,
+                vk::ImageLayout::UNDEFINED,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::PipelineStageFlags2::TOP_OF_PIPE,
+                vk::AccessFlags2::empty(),
+                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                vk::ImageAspectFlags::COLOR,
+            );
+            util::transition_image_layout(
+                &self.ctx.synchronization2,
+                cmd,
+                self.swapchain.depth_image,
+                vk::ImageLayout::UNDEFINED,
+                vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                vk::PipelineStageFlags2::TOP_OF_PIPE,
+                vk::AccessFlags2::empty(),
+                vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS,
+                vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
+                vk::ImageAspectFlags::DEPTH,
+            );
+
+            let color_attachment = vk::RenderingAttachmentInfo::default()
+                .image_view(self.swapchain.image_views[image_index as usize])
+                .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                .load_op(vk::AttachmentLoadOp::CLEAR)
+                .store_op(vk::AttachmentStoreOp::STORE)
+                .clear_value(vk::ClearValue {
                     color: vk::ClearColorValue {
                         float32: clear_color,
                     },
-                },
-                vk::ClearValue {
+                });
+            let depth_attachment = vk::RenderingAttachmentInfo::default()
+                .image_view(self.swapchain.depth_view)
+                .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                .load_op(vk::AttachmentLoadOp::CLEAR)
+                .store_op(vk::AttachmentStoreOp::DONT_CARE)
+                .clear_value(vk::ClearValue {
                     depth_stencil: vk::ClearDepthStencilValue {
                         depth: 1.0,
                         stencil: 0,
                     },
-                },
-            ];
-
-            let use_blur = matches!(&mode, RenderMode::MainMenu { blur, .. } if *blur > 0.01);
-
-            let (rp, fb) = if use_blur {
-                (
-                    self.swapchain.render_pass_scene,
-                    self.swapchain.framebuffers_scene[image_index as usize],
-                )
-            } else {
-                (
-                    self.swapchain.render_pass,
-                    self.swapchain.framebuffers[image_index as usize],
-                )
-            };
-
-            let render_pass_info = vk::RenderPassBeginInfo::default()
-                .render_pass(rp)
-                .framebuffer(fb)
+                });
+            let color_attachments = [color_attachment];
+            let rendering_info = vk::RenderingInfo::default()
                 .render_area(vk::Rect2D {
                     offset: vk::Offset2D { x: 0, y: 0 },
                     extent: self.swapchain.extent,
                 })
-                .clear_values(&clear_values);
+                .layer_count(1)
+                .color_attachments(&color_attachments)
+                .depth_attachment(&depth_attachment);
 
-            self.ctx.device.cmd_begin_render_pass(
-                cmd,
-                &render_pass_info,
-                vk::SubpassContents::INLINE,
-            );
+            self.ctx
+                .dynamic_rendering
+                .cmd_begin_rendering(cmd, &rendering_info);
 
             let viewport = vk::Viewport {
                 x: 0.0,
@@ -1033,6 +1148,7 @@ impl Renderer {
                 } => {
                     self.sky_pipeline.update_and_draw(
                         &self.ctx.device,
+                        &self.ctx.push_descriptor,
                         cmd,
                         frame,
                         &self.camera,
@@ -1040,7 +1156,12 @@ impl Renderer {
                     );
 
                     let t_cull = std::time::Instant::now();
-                    self.chunk_pipeline.bind(&self.ctx.device, cmd, frame);
+                    self.chunk_pipeline.bind(
+                        &self.ctx.device,
+                        &self.ctx.push_descriptor,
+                        cmd,
+                        frame,
+                    );
                     self.chunk_buffers
                         .draw_indirect(&self.ctx.device, cmd, frame);
                     let cull_ms = t_cull.elapsed().as_secs_f32() * 1000.0;
@@ -1048,6 +1169,7 @@ impl Renderer {
                     if let Some((block_pos, stage)) = destroy_info {
                         self.block_overlay_pipeline.draw(
                             &self.ctx.device,
+                            &self.ctx.push_descriptor,
                             cmd,
                             frame,
                             block_pos,
@@ -1055,15 +1177,29 @@ impl Renderer {
                         );
                     }
 
-                    self.entity_renderer
-                        .draw(&self.ctx.device, cmd, frame, entities);
+                    self.entity_renderer.draw(
+                        &self.ctx.device,
+                        &self.ctx.push_descriptor,
+                        cmd,
+                        frame,
+                        entities,
+                    );
 
-                    self.item_entity_pipeline
-                        .draw(&self.ctx.device, cmd, frame, item_entities);
+                    self.item_entity_pipeline.draw(
+                        &self.ctx.device,
+                        &self.ctx.push_descriptor,
+                        cmd,
+                        frame,
+                        item_entities,
+                    );
 
                     if *show_chunk_borders {
-                        self.chunk_border_pipeline
-                            .draw(&self.ctx.device, cmd, frame);
+                        self.chunk_border_pipeline.draw(
+                            &self.ctx.device,
+                            &self.ctx.push_descriptor,
+                            cmd,
+                            frame,
+                        );
                     }
 
                     let clear_attachment = vk::ClearAttachment {
@@ -1089,6 +1225,7 @@ impl Renderer {
                         let aspect = sw / sh.max(1.0);
                         self.hand_pipeline.update_and_draw(
                             &self.ctx.device,
+                            &self.ctx.push_descriptor,
                             cmd,
                             frame,
                             aspect,
@@ -1096,8 +1233,14 @@ impl Renderer {
                         );
                     }
 
-                    self.menu_pipeline
-                        .draw(&self.ctx.device, cmd, sw, sh, overlay);
+                    self.menu_pipeline.draw(
+                        &self.ctx.device,
+                        &self.ctx.push_descriptor,
+                        cmd,
+                        sw,
+                        sh,
+                        overlay,
+                    );
 
                     self.last_timings.cull_ms = cull_ms;
                     self.last_timings.frame_ms = frame_start.elapsed().as_secs_f32() * 1000.0;
@@ -1110,16 +1253,23 @@ impl Renderer {
                     show_skin,
                 } => {
                     let aspect = sw / sh.max(1.0);
-                    self.panorama_pipeline
-                        .draw(&self.ctx.device, cmd, *scroll, aspect, 0.0);
+                    self.panorama_pipeline.draw(
+                        &self.ctx.device,
+                        &self.ctx.push_descriptor,
+                        cmd,
+                        *scroll,
+                        aspect,
+                        0.0,
+                    );
 
                     if *blur > 0.01 {
-                        self.ctx.device.cmd_end_render_pass(cmd);
+                        self.ctx.dynamic_rendering.cmd_end_rendering(cmd);
 
-                        let swapchain_image = self.swapchain.images[image_index as usize];
                         let iterations = ((*blur * 3.0).ceil() as u32).clamp(1, 4);
                         self.blur_pipeline.execute(
                             &self.ctx.device,
+                            &self.ctx.push_descriptor,
+                            &self.ctx.dynamic_rendering,
                             cmd,
                             swapchain_image,
                             self.swapchain.extent.width,
@@ -1133,19 +1283,49 @@ impl Renderer {
                             self.blur_pipeline.blurred_sampler(),
                         );
 
-                        let load_rp_info = vk::RenderPassBeginInfo::default()
-                            .render_pass(self.swapchain.render_pass_load)
-                            .framebuffer(self.swapchain.framebuffers_load[image_index as usize])
+                        // Re-enter rendering with LOAD to preserve blurred content
+                        util::transition_image_layout(
+                            &self.ctx.synchronization2,
+                            cmd,
+                            swapchain_image,
+                            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                            vk::PipelineStageFlags2::BLIT,
+                            vk::AccessFlags2::TRANSFER_WRITE,
+                            vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                            vk::AccessFlags2::COLOR_ATTACHMENT_WRITE
+                                | vk::AccessFlags2::COLOR_ATTACHMENT_READ,
+                            vk::ImageAspectFlags::COLOR,
+                        );
+
+                        let load_color = vk::RenderingAttachmentInfo::default()
+                            .image_view(self.swapchain.image_views[image_index as usize])
+                            .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                            .load_op(vk::AttachmentLoadOp::LOAD)
+                            .store_op(vk::AttachmentStoreOp::STORE);
+                        let load_depth = vk::RenderingAttachmentInfo::default()
+                            .image_view(self.swapchain.depth_view)
+                            .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+                            .load_op(vk::AttachmentLoadOp::CLEAR)
+                            .store_op(vk::AttachmentStoreOp::DONT_CARE)
+                            .clear_value(vk::ClearValue {
+                                depth_stencil: vk::ClearDepthStencilValue {
+                                    depth: 1.0,
+                                    stencil: 0,
+                                },
+                            });
+                        let load_colors = [load_color];
+                        let load_info = vk::RenderingInfo::default()
                             .render_area(vk::Rect2D {
                                 offset: vk::Offset2D { x: 0, y: 0 },
                                 extent: self.swapchain.extent,
                             })
-                            .clear_values(&clear_values);
-                        self.ctx.device.cmd_begin_render_pass(
-                            cmd,
-                            &load_rp_info,
-                            vk::SubpassContents::INLINE,
-                        );
+                            .layer_count(1)
+                            .color_attachments(&load_colors)
+                            .depth_attachment(&load_depth);
+                        self.ctx
+                            .dynamic_rendering
+                            .cmd_begin_rendering(cmd, &load_info);
                         self.ctx.device.cmd_set_viewport(cmd, 0, &[viewport]);
                         self.ctx.device.cmd_set_scissor(cmd, 0, &[scissor]);
                     }
@@ -1153,6 +1333,7 @@ impl Renderer {
                     if *show_skin {
                         self.skin_preview.draw(
                             &self.ctx.device,
+                            &self.ctx.push_descriptor,
                             cmd,
                             frame,
                             aspect,
@@ -1165,34 +1346,65 @@ impl Renderer {
                         );
                     }
 
-                    self.menu_pipeline
-                        .draw(&self.ctx.device, cmd, sw, sh, elements);
+                    self.menu_pipeline.draw(
+                        &self.ctx.device,
+                        &self.ctx.push_descriptor,
+                        cmd,
+                        sw,
+                        sh,
+                        elements,
+                    );
                 }
             }
 
-            self.ctx.device.cmd_end_render_pass(cmd);
+            self.ctx.dynamic_rendering.cmd_end_rendering(cmd);
+
+            util::transition_image_layout(
+                &self.ctx.synchronization2,
+                cmd,
+                swapchain_image,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::ImageLayout::PRESENT_SRC_KHR,
+                vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+                vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+                vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
+                vk::AccessFlags2::empty(),
+                vk::ImageAspectFlags::COLOR,
+            );
 
             self.ctx.device.end_command_buffer(cmd)?;
 
+            self.ctx
+                .timeline_value
+                .set(self.ctx.timeline_value.get() + 1);
             let wait_semaphores = [image_available];
             let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-            let signal_semaphores = [render_finished];
+            let signal_semaphores = [render_finished, self.ctx.timeline_semaphore];
+            let signal_values = [0u64, self.ctx.timeline_value.get()];
+            let wait_values = [0u64];
             let cmd_buffers = [cmd];
+            let mut timeline_info = vk::TimelineSemaphoreSubmitInfo::default()
+                .signal_semaphore_values(&signal_values)
+                .wait_semaphore_values(&wait_values);
 
             let submit_info = vk::SubmitInfo::default()
                 .wait_semaphores(&wait_semaphores)
                 .wait_dst_stage_mask(&wait_stages)
                 .command_buffers(&cmd_buffers)
-                .signal_semaphores(&signal_semaphores);
+                .signal_semaphores(&signal_semaphores)
+                .push_next(&mut timeline_info);
 
-            self.ctx
-                .device
-                .queue_submit(self.ctx.graphics_queue, &[submit_info], fence)?;
+            self.ctx.device.queue_submit(
+                self.ctx.graphics_queue,
+                &[submit_info],
+                vk::Fence::null(),
+            )?;
 
+            let present_sems = [render_finished];
             let swapchains = [self.swapchain.swapchain];
             let image_indices = [image_index];
             let present_info = vk::PresentInfoKHR::default()
-                .wait_semaphores(&signal_semaphores)
+                .wait_semaphores(&present_sems)
                 .swapchains(&swapchains)
                 .image_indices(&image_indices);
 
@@ -1308,6 +1520,8 @@ impl Drop for Renderer {
         self.item_entity_pipeline
             .destroy(&self.ctx.device, &self.ctx.allocator);
         self.atlas.destroy(&self.ctx.device, &self.ctx.allocator);
+        self.destruction_queue
+            .flush_all(&self.ctx.device, &self.ctx.allocator);
         self.swapchain.destroy(
             &self.ctx.device,
             &self.ctx.swapchain_loader,

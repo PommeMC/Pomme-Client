@@ -268,6 +268,33 @@ pub fn create_descriptor_set_layout(
     descriptor_type: vk::DescriptorType,
     stage_flags: vk::ShaderStageFlags,
 ) -> vk::DescriptorSetLayout {
+    create_descriptor_set_layout_flags(
+        device,
+        descriptor_type,
+        stage_flags,
+        vk::DescriptorSetLayoutCreateFlags::empty(),
+    )
+}
+
+pub fn create_push_descriptor_set_layout(
+    device: &ash::Device,
+    descriptor_type: vk::DescriptorType,
+    stage_flags: vk::ShaderStageFlags,
+) -> vk::DescriptorSetLayout {
+    create_descriptor_set_layout_flags(
+        device,
+        descriptor_type,
+        stage_flags,
+        vk::DescriptorSetLayoutCreateFlags::PUSH_DESCRIPTOR_KHR,
+    )
+}
+
+fn create_descriptor_set_layout_flags(
+    device: &ash::Device,
+    descriptor_type: vk::DescriptorType,
+    stage_flags: vk::ShaderStageFlags,
+    flags: vk::DescriptorSetLayoutCreateFlags,
+) -> vk::DescriptorSetLayout {
     let bindings = [vk::DescriptorSetLayoutBinding {
         binding: 0,
         descriptor_type,
@@ -275,7 +302,9 @@ pub fn create_descriptor_set_layout(
         stage_flags,
         ..Default::default()
     }];
-    let info = vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
+    let info = vk::DescriptorSetLayoutCreateInfo::default()
+        .bindings(&bindings)
+        .flags(flags);
     unsafe { device.create_descriptor_set_layout(&info, None) }
         .expect("failed to create descriptor set layout")
 }
@@ -339,6 +368,43 @@ pub const DEPTH_SUBRESOURCE_RANGE: vk::ImageSubresourceRange = vk::ImageSubresou
     base_array_layer: 0,
     layer_count: 1,
 };
+
+#[allow(clippy::too_many_arguments)]
+pub fn transition_image_layout(
+    sync2: &ash::khr::synchronization2::Device,
+    cmd: vk::CommandBuffer,
+    image: vk::Image,
+    old_layout: vk::ImageLayout,
+    new_layout: vk::ImageLayout,
+    src_stage: vk::PipelineStageFlags2,
+    src_access: vk::AccessFlags2,
+    dst_stage: vk::PipelineStageFlags2,
+    dst_access: vk::AccessFlags2,
+    aspect: vk::ImageAspectFlags,
+) {
+    let barrier = vk::ImageMemoryBarrier2::default()
+        .image(image)
+        .old_layout(old_layout)
+        .new_layout(new_layout)
+        .src_stage_mask(src_stage)
+        .src_access_mask(src_access)
+        .dst_stage_mask(dst_stage)
+        .dst_access_mask(dst_access)
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .subresource_range(vk::ImageSubresourceRange {
+            aspect_mask: aspect,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+        });
+    let barriers = [barrier];
+    let dep_info = vk::DependencyInfo::default().image_memory_barriers(&barriers);
+    unsafe {
+        sync2.cmd_pipeline_barrier2(cmd, &dep_info);
+    }
+}
 
 pub unsafe fn create_nearest_sampler(device: &ash::Device) -> vk::Sampler {
     unsafe { create_nearest_sampler_mipmapped(device, 1) }

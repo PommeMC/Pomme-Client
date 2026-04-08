@@ -133,9 +133,6 @@ pub struct MenuOverlayPipeline {
     pipeline_layout: vk::PipelineLayout,
     globals_layout: vk::DescriptorSetLayout,
     tex_layout: vk::DescriptorSetLayout,
-    descriptor_pool: vk::DescriptorPool,
-    globals_set: vk::DescriptorSet,
-    tex_set: vk::DescriptorSet,
     globals_buffer: vk::Buffer,
     globals_allocation: Option<Allocation>,
     font_image: vk::Image,
@@ -174,21 +171,27 @@ pub struct MenuOverlayPipeline {
     favicon_allocation: Option<Allocation>,
     favicon_regions: std::collections::HashMap<String, [f32; 4]>,
     favicon_atlas_size: u32,
+    blur_view: vk::ImageView,
+    blur_sampler: vk::Sampler,
+    tex_descriptor_pool: vk::DescriptorPool,
+    tex_descriptor_set: vk::DescriptorSet,
 }
 
 impl MenuOverlayPipeline {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: &ash::Device,
         queue: vk::Queue,
         command_pool: vk::CommandPool,
-        render_pass: vk::RenderPass,
+        color_format: vk::Format,
+        depth_format: vk::Format,
         allocator: &Arc<Mutex<Allocator>>,
         jar_assets_dir: &Path,
         asset_index: &Option<AssetIndex>,
     ) -> Self {
         let atlas = build_font_atlas();
 
-        let globals_layout = util::create_descriptor_set_layout(
+        let globals_layout = util::create_push_descriptor_set_layout(
             device,
             vk::DescriptorType::UNIFORM_BUFFER,
             vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
@@ -247,52 +250,10 @@ impl MenuOverlayPipeline {
         let pipeline_layout = unsafe { device.create_pipeline_layout(&layout_info, None) }
             .expect("failed to create menu overlay pipeline layout");
 
-        let pipeline = create_pipeline(device, render_pass, pipeline_layout);
-
-        let pool_sizes = [
-            vk::DescriptorPoolSize {
-                ty: vk::DescriptorType::UNIFORM_BUFFER,
-                descriptor_count: 1,
-            },
-            vk::DescriptorPoolSize {
-                ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                descriptor_count: 6,
-            },
-        ];
-        let pool_info = vk::DescriptorPoolCreateInfo::default()
-            .max_sets(2)
-            .pool_sizes(&pool_sizes);
-        let descriptor_pool = unsafe { device.create_descriptor_pool(&pool_info, None) }
-            .expect("failed to create menu overlay descriptor pool");
-
-        let globals_layouts = [globals_layout];
-        let globals_alloc_info = vk::DescriptorSetAllocateInfo::default()
-            .descriptor_pool(descriptor_pool)
-            .set_layouts(&globals_layouts);
-        let globals_set = unsafe { device.allocate_descriptor_sets(&globals_alloc_info) }
-            .expect("failed to allocate globals descriptor set")[0];
-
-        let tex_layouts = [tex_layout];
-        let tex_alloc_info = vk::DescriptorSetAllocateInfo::default()
-            .descriptor_pool(descriptor_pool)
-            .set_layouts(&tex_layouts);
-        let tex_set = unsafe { device.allocate_descriptor_sets(&tex_alloc_info) }
-            .expect("failed to allocate texture descriptor set")[0];
+        let pipeline = create_pipeline(device, color_format, depth_format, pipeline_layout);
 
         let (globals_buffer, globals_allocation) =
             util::create_uniform_buffer(device, allocator, 8, "menu_globals");
-
-        let buf_info = [vk::DescriptorBufferInfo {
-            buffer: globals_buffer,
-            offset: 0,
-            range: 8,
-        }];
-        let write = vk::WriteDescriptorSet::default()
-            .dst_set(globals_set)
-            .dst_binding(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .buffer_info(&buf_info);
-        unsafe { device.update_descriptor_sets(&[write], &[]) };
 
         let (font_image, font_view, font_alloc) = util::create_gpu_image_with_format(
             device,
@@ -380,26 +341,6 @@ impl MenuOverlayPipeline {
         };
         let mc_font_sampler = unsafe { util::create_nearest_sampler(device) };
 
-        let font_img_info = [vk::DescriptorImageInfo {
-            sampler: font_sampler,
-            image_view: font_view,
-            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        }];
-        let sprite_img_info = [vk::DescriptorImageInfo {
-            sampler: sprite_sampler,
-            image_view: sprite_view,
-            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        }];
-        let item_img_info = [vk::DescriptorImageInfo {
-            sampler: item_sampler,
-            image_view: item_view,
-            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        }];
-        let mc_font_img_info = [vk::DescriptorImageInfo {
-            sampler: mc_font_sampler,
-            image_view: mc_font_view,
-            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        }];
         let (favicon_image, favicon_view, favicon_alloc) = util::create_gpu_image_with_format(
             device,
             allocator,
@@ -427,45 +368,6 @@ impl MenuOverlayPipeline {
         allocator.lock().unwrap().free(fav_staging_alloc).ok();
         let favicon_sampler = unsafe { util::create_nearest_sampler(device) };
 
-        let favicon_img_info = [vk::DescriptorImageInfo {
-            sampler: favicon_sampler,
-            image_view: favicon_view,
-            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        }];
-        let writes = [
-            vk::WriteDescriptorSet::default()
-                .dst_set(tex_set)
-                .dst_binding(0)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&font_img_info),
-            vk::WriteDescriptorSet::default()
-                .dst_set(tex_set)
-                .dst_binding(1)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&sprite_img_info),
-            vk::WriteDescriptorSet::default()
-                .dst_set(tex_set)
-                .dst_binding(2)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&item_img_info),
-            vk::WriteDescriptorSet::default()
-                .dst_set(tex_set)
-                .dst_binding(3)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&mc_font_img_info),
-            vk::WriteDescriptorSet::default()
-                .dst_set(tex_set)
-                .dst_binding(4)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&font_img_info),
-            vk::WriteDescriptorSet::default()
-                .dst_set(tex_set)
-                .dst_binding(5)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&favicon_img_info),
-        ];
-        unsafe { device.update_descriptor_sets(&writes, &[]) };
-
         let (vertex_buffer, vertex_allocation) = util::create_host_buffer(
             device,
             allocator,
@@ -474,14 +376,91 @@ impl MenuOverlayPipeline {
             "menu_vertices",
         );
 
+        let pool_sizes = [vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 6,
+        }];
+        let pool_info = vk::DescriptorPoolCreateInfo::default()
+            .max_sets(1)
+            .pool_sizes(&pool_sizes);
+        let tex_descriptor_pool = unsafe { device.create_descriptor_pool(&pool_info, None) }
+            .expect("failed to create menu overlay tex descriptor pool");
+
+        let alloc_info = vk::DescriptorSetAllocateInfo::default()
+            .descriptor_pool(tex_descriptor_pool)
+            .set_layouts(std::slice::from_ref(&tex_layout));
+        let tex_descriptor_set = unsafe { device.allocate_descriptor_sets(&alloc_info) }
+            .expect("failed to allocate menu overlay tex descriptor set")[0];
+
+        let font_img = [vk::DescriptorImageInfo {
+            sampler: font_sampler,
+            image_view: font_view,
+            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        }];
+        let sprite_img = [vk::DescriptorImageInfo {
+            sampler: sprite_sampler,
+            image_view: sprite_view,
+            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        }];
+        let item_img = [vk::DescriptorImageInfo {
+            sampler: item_sampler,
+            image_view: item_view,
+            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        }];
+        let mc_font_img = [vk::DescriptorImageInfo {
+            sampler: mc_font_sampler,
+            image_view: mc_font_view,
+            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        }];
+        let blur_img = [vk::DescriptorImageInfo {
+            sampler: font_sampler,
+            image_view: font_view,
+            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        }];
+        let favicon_img = [vk::DescriptorImageInfo {
+            sampler: favicon_sampler,
+            image_view: favicon_view,
+            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        }];
+        let init_writes = [
+            vk::WriteDescriptorSet::default()
+                .dst_set(tex_descriptor_set)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&font_img),
+            vk::WriteDescriptorSet::default()
+                .dst_set(tex_descriptor_set)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&sprite_img),
+            vk::WriteDescriptorSet::default()
+                .dst_set(tex_descriptor_set)
+                .dst_binding(2)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&item_img),
+            vk::WriteDescriptorSet::default()
+                .dst_set(tex_descriptor_set)
+                .dst_binding(3)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&mc_font_img),
+            vk::WriteDescriptorSet::default()
+                .dst_set(tex_descriptor_set)
+                .dst_binding(4)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&blur_img),
+            vk::WriteDescriptorSet::default()
+                .dst_set(tex_descriptor_set)
+                .dst_binding(5)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(&favicon_img),
+        ];
+        unsafe { device.update_descriptor_sets(&init_writes, &[]) };
+
         Self {
             pipeline,
             pipeline_layout,
             globals_layout,
             tex_layout,
-            descriptor_pool,
-            globals_set,
-            tex_set,
             globals_buffer,
             globals_allocation: Some(globals_allocation),
             font_image,
@@ -520,12 +499,17 @@ impl MenuOverlayPipeline {
             favicon_allocation: Some(favicon_alloc),
             favicon_regions: std::collections::HashMap::new(),
             favicon_atlas_size: 1,
+            blur_view: font_view,
+            blur_sampler: font_sampler,
+            tex_descriptor_pool,
+            tex_descriptor_set,
         }
     }
 
     pub fn draw(
         &mut self,
         device: &ash::Device,
+        push_desc: &ash::khr::push_descriptor::Device,
         cmd: vk::CommandBuffer,
         screen_w: f32,
         screen_h: f32,
@@ -928,14 +912,31 @@ impl MenuOverlayPipeline {
             },
         };
 
+        let globals_buf_info = [vk::DescriptorBufferInfo {
+            buffer: self.globals_buffer,
+            offset: 0,
+            range: 8,
+        }];
+        let globals_write = vk::WriteDescriptorSet::default()
+            .dst_binding(0)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .buffer_info(&globals_buf_info);
+
         unsafe {
             device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
-            device.cmd_bind_descriptor_sets(
+            push_desc.cmd_push_descriptor_set(
                 cmd,
                 vk::PipelineBindPoint::GRAPHICS,
                 self.pipeline_layout,
                 0,
-                &[self.globals_set, self.tex_set],
+                &[globals_write],
+            );
+            device.cmd_bind_descriptor_sets(
+                cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.pipeline_layout,
+                1,
+                &[self.tex_descriptor_set],
                 &[],
             );
             device.cmd_bind_vertex_buffers(cmd, 0, &[self.vertex_buffer], &[0]);
@@ -962,22 +963,26 @@ impl MenuOverlayPipeline {
     }
 
     pub fn set_blur_texture(
-        &self,
+        &mut self,
         device: &ash::Device,
         view: vk::ImageView,
         sampler: vk::Sampler,
     ) {
-        let info = [vk::DescriptorImageInfo {
+        self.blur_view = view;
+        self.blur_sampler = sampler;
+        let img_info = [vk::DescriptorImageInfo {
             sampler,
             image_view: view,
             image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         }];
-        let write = [vk::WriteDescriptorSet::default()
-            .dst_set(self.tex_set)
+        let write = vk::WriteDescriptorSet::default()
+            .dst_set(self.tex_descriptor_set)
             .dst_binding(4)
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&info)];
-        unsafe { device.update_descriptor_sets(&write, &[]) };
+            .image_info(&img_info);
+        unsafe {
+            device.update_descriptor_sets(&[write], &[]);
+        }
     }
 
     pub fn update_favicon_atlas(
@@ -1063,17 +1068,7 @@ impl MenuOverlayPipeline {
         self.favicon_regions = regions;
         self.favicon_atlas_size = atlas_w;
 
-        let info = [vk::DescriptorImageInfo {
-            sampler: self.favicon_sampler,
-            image_view: view,
-            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        }];
-        let write = [vk::WriteDescriptorSet::default()
-            .dst_set(self.tex_set)
-            .dst_binding(5)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&info)];
-        unsafe { device.update_descriptor_sets(&write, &[]) };
+        self.favicon_view = view;
     }
 
     pub fn text_width(&self, text: &str, scale: f32) -> f32 {
@@ -1093,11 +1088,6 @@ impl MenuOverlayPipeline {
             })
             .sum();
         raw.ceil()
-    }
-
-    pub fn recreate_pipeline(&mut self, device: &ash::Device, render_pass: vk::RenderPass) {
-        unsafe { device.destroy_pipeline(self.pipeline, None) };
-        self.pipeline = create_pipeline(device, render_pass, self.pipeline_layout);
     }
 
     pub fn destroy(&mut self, device: &ash::Device, allocator: &Arc<Mutex<Allocator>>) {
@@ -1174,9 +1164,9 @@ impl MenuOverlayPipeline {
         drop(alloc);
 
         unsafe {
+            device.destroy_descriptor_pool(self.tex_descriptor_pool, None);
             device.destroy_pipeline(self.pipeline, None);
             device.destroy_pipeline_layout(self.pipeline_layout, None);
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
             device.destroy_descriptor_set_layout(self.globals_layout, None);
             device.destroy_descriptor_set_layout(self.tex_layout, None);
         }
@@ -2442,7 +2432,8 @@ fn push_mc_glyph(
 
 fn create_pipeline(
     device: &ash::Device,
-    render_pass: vk::RenderPass,
+    color_format: vk::Format,
+    depth_format: vk::Format,
     layout: vk::PipelineLayout,
 ) -> vk::Pipeline {
     let vert_spv = shader::include_spirv!("menu_overlay.vert.spv");
@@ -2547,6 +2538,11 @@ fn create_pipeline(
     let dynamic_state =
         vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
 
+    let color_formats = [color_format];
+    let mut rendering_info = vk::PipelineRenderingCreateInfo::default()
+        .color_attachment_formats(&color_formats)
+        .depth_attachment_format(depth_format);
+
     let pipeline_info = [vk::GraphicsPipelineCreateInfo::default()
         .stages(&stages)
         .vertex_input_state(&vertex_input)
@@ -2558,8 +2554,7 @@ fn create_pipeline(
         .color_blend_state(&color_blending)
         .dynamic_state(&dynamic_state)
         .layout(layout)
-        .render_pass(render_pass)
-        .subpass(0)];
+        .push_next(&mut rendering_info)];
 
     let pipeline = unsafe {
         device.create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_info, None)

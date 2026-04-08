@@ -14,15 +14,9 @@ pub struct BlurPipeline {
     view_b: vk::ImageView,
     alloc_b: Option<Allocation>,
     sampler: vk::Sampler,
-    render_pass: vk::RenderPass,
-    fb_a: vk::Framebuffer,
-    fb_b: vk::Framebuffer,
     pipeline: vk::Pipeline,
     pipeline_layout: vk::PipelineLayout,
     desc_layout: vk::DescriptorSetLayout,
-    desc_pool: vk::DescriptorPool,
-    set_read_a: vk::DescriptorSet,
-    set_read_b: vk::DescriptorSet,
     width: u32,
     height: u32,
     format: vk::Format,
@@ -58,10 +52,6 @@ impl BlurPipeline {
                 .expect("failed to create blur sampler")
         };
 
-        let render_pass = create_blur_render_pass(device, format);
-        let fb_a = create_blur_framebuffer(device, render_pass, view_a, blur_w, blur_h);
-        let fb_b = create_blur_framebuffer(device, render_pass, view_b, blur_w, blur_h);
-
         let desc_layout = {
             let bindings = [vk::DescriptorSetLayoutBinding {
                 binding: 0,
@@ -70,7 +60,9 @@ impl BlurPipeline {
                 stage_flags: vk::ShaderStageFlags::FRAGMENT,
                 ..Default::default()
             }];
-            let info = vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
+            let info = vk::DescriptorSetLayoutCreateInfo::default()
+                .bindings(&bindings)
+                .flags(vk::DescriptorSetLayoutCreateFlags::PUSH_DESCRIPTOR_KHR);
             unsafe { device.create_descriptor_set_layout(&info, None) }
                 .expect("failed to create blur desc layout")
         };
@@ -87,29 +79,7 @@ impl BlurPipeline {
         let pipeline_layout = unsafe { device.create_pipeline_layout(&layout_info, None) }
             .expect("failed to create blur pipeline layout");
 
-        let pipeline = create_blur_graphics_pipeline(device, render_pass, pipeline_layout);
-
-        let pool_sizes = [vk::DescriptorPoolSize {
-            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            descriptor_count: 2,
-        }];
-        let pool_info = vk::DescriptorPoolCreateInfo::default()
-            .max_sets(2)
-            .pool_sizes(&pool_sizes);
-        let desc_pool = unsafe { device.create_descriptor_pool(&pool_info, None) }
-            .expect("failed to create blur desc pool");
-
-        let alloc_layouts = [desc_layout, desc_layout];
-        let alloc_info = vk::DescriptorSetAllocateInfo::default()
-            .descriptor_pool(desc_pool)
-            .set_layouts(&alloc_layouts);
-        let sets = unsafe { device.allocate_descriptor_sets(&alloc_info) }
-            .expect("failed to allocate blur desc sets");
-        let set_read_a = sets[0];
-        let set_read_b = sets[1];
-
-        write_blur_descriptor(device, set_read_a, view_a, sampler);
-        write_blur_descriptor(device, set_read_b, view_b, sampler);
+        let pipeline = create_blur_graphics_pipeline(device, format, pipeline_layout);
 
         Self {
             image_a,
@@ -119,15 +89,9 @@ impl BlurPipeline {
             view_b,
             alloc_b: Some(alloc_b),
             sampler,
-            render_pass,
-            fb_a,
-            fb_b,
             pipeline,
             pipeline_layout,
             desc_layout,
-            desc_pool,
-            set_read_a,
-            set_read_b,
             width: blur_w,
             height: blur_h,
             format,
@@ -146,6 +110,8 @@ impl BlurPipeline {
     pub fn execute(
         &self,
         device: &ash::Device,
+        push_desc: &ash::khr::push_descriptor::Device,
+        dyn_render: &ash::khr::dynamic_rendering::Device,
         cmd: vk::CommandBuffer,
         src_image: vk::Image,
         src_width: u32,
@@ -288,23 +254,62 @@ impl BlurPipeline {
                 },
             };
 
+            let color_range = vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            };
+
             for _ in 0..iterations {
-                // Horizontal: read A → write B
-                let rp_info = vk::RenderPassBeginInfo::default()
-                    .render_pass(self.render_pass)
-                    .framebuffer(self.fb_b)
-                    .render_area(scissor);
-                device.cmd_begin_render_pass(cmd, &rp_info, vk::SubpassContents::INLINE);
+                // Horizontal: read A -> write B
+                // Transition B to COLOR_ATTACHMENT_OPTIMAL
+                let barrier_b_write = vk::ImageMemoryBarrier::default()
+                    .image(self.image_b)
+                    .old_layout(vk::ImageLayout::UNDEFINED)
+                    .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                    .src_access_mask(vk::AccessFlags::SHADER_READ)
+                    .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+                    .subresource_range(color_range);
+                device.cmd_pipeline_barrier(
+                    cmd,
+                    vk::PipelineStageFlags::FRAGMENT_SHADER,
+                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                    vk::DependencyFlags::empty(),
+                    &[],
+                    &[],
+                    &[barrier_b_write],
+                );
+
+                let color_attachment_b = vk::RenderingAttachmentInfo::default()
+                    .image_view(self.view_b)
+                    .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                    .load_op(vk::AttachmentLoadOp::DONT_CARE)
+                    .store_op(vk::AttachmentStoreOp::STORE);
+                let rendering_info = vk::RenderingInfo::default()
+                    .render_area(scissor)
+                    .layer_count(1)
+                    .color_attachments(std::slice::from_ref(&color_attachment_b));
+                dyn_render.cmd_begin_rendering(cmd, &rendering_info);
                 device.cmd_set_viewport(cmd, 0, &[viewport]);
                 device.cmd_set_scissor(cmd, 0, &[scissor]);
                 device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
-                device.cmd_bind_descriptor_sets(
+                let a_img_info = [vk::DescriptorImageInfo {
+                    sampler: self.sampler,
+                    image_view: self.view_a,
+                    image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                }];
+                let a_write = vk::WriteDescriptorSet::default()
+                    .dst_binding(0)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(&a_img_info);
+                push_desc.cmd_push_descriptor_set(
                     cmd,
                     vk::PipelineBindPoint::GRAPHICS,
                     self.pipeline_layout,
                     0,
-                    &[self.set_read_a],
-                    &[],
+                    &[a_write],
                 );
                 device.cmd_push_constants(
                     cmd,
@@ -314,24 +319,64 @@ impl BlurPipeline {
                     bytemuck::cast_slice(&h_dir),
                 );
                 device.cmd_draw(cmd, 3, 1, 0, 0);
-                device.cmd_end_render_pass(cmd);
+                dyn_render.cmd_end_rendering(cmd);
 
-                // Vertical: read B → write A
-                let rp_info = vk::RenderPassBeginInfo::default()
-                    .render_pass(self.render_pass)
-                    .framebuffer(self.fb_a)
-                    .render_area(scissor);
-                device.cmd_begin_render_pass(cmd, &rp_info, vk::SubpassContents::INLINE);
+                // Transition B to SHADER_READ_ONLY, A to COLOR_ATTACHMENT
+                let barrier_b_read = vk::ImageMemoryBarrier::default()
+                    .image(self.image_b)
+                    .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                    .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+                    .dst_access_mask(vk::AccessFlags::SHADER_READ)
+                    .subresource_range(color_range);
+                let barrier_a_write = vk::ImageMemoryBarrier::default()
+                    .image(self.image_a)
+                    .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                    .src_access_mask(vk::AccessFlags::SHADER_READ)
+                    .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+                    .subresource_range(color_range);
+                device.cmd_pipeline_barrier(
+                    cmd,
+                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                        | vk::PipelineStageFlags::FRAGMENT_SHADER,
+                    vk::PipelineStageFlags::FRAGMENT_SHADER
+                        | vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                    vk::DependencyFlags::empty(),
+                    &[],
+                    &[],
+                    &[barrier_b_read, barrier_a_write],
+                );
+
+                // Vertical: read B -> write A
+                let color_attachment_a = vk::RenderingAttachmentInfo::default()
+                    .image_view(self.view_a)
+                    .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                    .load_op(vk::AttachmentLoadOp::DONT_CARE)
+                    .store_op(vk::AttachmentStoreOp::STORE);
+                let rendering_info = vk::RenderingInfo::default()
+                    .render_area(scissor)
+                    .layer_count(1)
+                    .color_attachments(std::slice::from_ref(&color_attachment_a));
+                dyn_render.cmd_begin_rendering(cmd, &rendering_info);
                 device.cmd_set_viewport(cmd, 0, &[viewport]);
                 device.cmd_set_scissor(cmd, 0, &[scissor]);
                 device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
-                device.cmd_bind_descriptor_sets(
+                let b_img_info = [vk::DescriptorImageInfo {
+                    sampler: self.sampler,
+                    image_view: self.view_b,
+                    image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                }];
+                let b_write = vk::WriteDescriptorSet::default()
+                    .dst_binding(0)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(&b_img_info);
+                push_desc.cmd_push_descriptor_set(
                     cmd,
                     vk::PipelineBindPoint::GRAPHICS,
                     self.pipeline_layout,
                     0,
-                    &[self.set_read_b],
-                    &[],
+                    &[b_write],
                 );
                 device.cmd_push_constants(
                     cmd,
@@ -341,7 +386,25 @@ impl BlurPipeline {
                     bytemuck::cast_slice(&v_dir),
                 );
                 device.cmd_draw(cmd, 3, 1, 0, 0);
-                device.cmd_end_render_pass(cmd);
+                dyn_render.cmd_end_rendering(cmd);
+
+                // Transition A back to SHADER_READ_ONLY for next iteration / sampling
+                let barrier_a_read = vk::ImageMemoryBarrier::default()
+                    .image(self.image_a)
+                    .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                    .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+                    .dst_access_mask(vk::AccessFlags::SHADER_READ)
+                    .subresource_range(color_range);
+                device.cmd_pipeline_barrier(
+                    cmd,
+                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                    vk::PipelineStageFlags::FRAGMENT_SHADER,
+                    vk::DependencyFlags::empty(),
+                    &[],
+                    &[],
+                    &[barrier_a_read],
+                );
             }
         }
     }
@@ -375,16 +438,6 @@ impl BlurPipeline {
         self.view_b = vb;
         self.alloc_b = Some(ab);
 
-        unsafe {
-            device.destroy_framebuffer(self.fb_a, None);
-            device.destroy_framebuffer(self.fb_b, None);
-        }
-        self.fb_a = create_blur_framebuffer(device, self.render_pass, va, bw, bh);
-        self.fb_b = create_blur_framebuffer(device, self.render_pass, vb, bw, bh);
-
-        write_blur_descriptor(device, self.set_read_a, va, self.sampler);
-        write_blur_descriptor(device, self.set_read_b, vb, self.sampler);
-
         self.width = bw;
         self.height = bh;
     }
@@ -408,13 +461,9 @@ impl BlurPipeline {
     pub fn destroy(&mut self, device: &ash::Device, allocator: &Arc<Mutex<Allocator>>) {
         self.destroy_images(device, allocator);
         unsafe {
-            device.destroy_framebuffer(self.fb_a, None);
-            device.destroy_framebuffer(self.fb_b, None);
             device.destroy_pipeline(self.pipeline, None);
             device.destroy_pipeline_layout(self.pipeline_layout, None);
-            device.destroy_descriptor_pool(self.desc_pool, None);
             device.destroy_descriptor_set_layout(self.desc_layout, None);
-            device.destroy_render_pass(self.render_pass, None);
             device.destroy_sampler(self.sampler, None);
         }
     }
@@ -484,60 +533,9 @@ fn create_blur_image(
     (image, view, alloc)
 }
 
-fn create_blur_render_pass(device: &ash::Device, format: vk::Format) -> vk::RenderPass {
-    let attachment = [vk::AttachmentDescription::default()
-        .format(format)
-        .samples(vk::SampleCountFlags::TYPE_1)
-        .load_op(vk::AttachmentLoadOp::DONT_CARE)
-        .store_op(vk::AttachmentStoreOp::STORE)
-        .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)];
-
-    let color_ref = [vk::AttachmentReference {
-        attachment: 0,
-        layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-    }];
-
-    let subpass = [vk::SubpassDescription::default()
-        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-        .color_attachments(&color_ref)];
-
-    let dependency = [vk::SubpassDependency::default()
-        .src_subpass(vk::SUBPASS_EXTERNAL)
-        .dst_subpass(0)
-        .src_stage_mask(vk::PipelineStageFlags::FRAGMENT_SHADER)
-        .src_access_mask(vk::AccessFlags::SHADER_READ)
-        .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-        .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)];
-
-    let info = vk::RenderPassCreateInfo::default()
-        .attachments(&attachment)
-        .subpasses(&subpass)
-        .dependencies(&dependency);
-
-    unsafe { device.create_render_pass(&info, None) }.expect("failed to create blur render pass")
-}
-
-fn create_blur_framebuffer(
-    device: &ash::Device,
-    render_pass: vk::RenderPass,
-    view: vk::ImageView,
-    w: u32,
-    h: u32,
-) -> vk::Framebuffer {
-    let attachments = [view];
-    let info = vk::FramebufferCreateInfo::default()
-        .render_pass(render_pass)
-        .attachments(&attachments)
-        .width(w)
-        .height(h)
-        .layers(1);
-    unsafe { device.create_framebuffer(&info, None) }.expect("failed to create blur framebuffer")
-}
-
 fn create_blur_graphics_pipeline(
     device: &ash::Device,
-    render_pass: vk::RenderPass,
+    color_format: vk::Format,
     layout: vk::PipelineLayout,
 ) -> vk::Pipeline {
     let vert_spv = shader::include_spirv!("blur.vert.spv");
@@ -579,6 +577,11 @@ fn create_blur_graphics_pipeline(
     let dynamic_state =
         vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
 
+    let color_formats = [color_format];
+    let mut rendering_info = vk::PipelineRenderingCreateInfo::default()
+        .color_attachment_formats(&color_formats)
+        .depth_attachment_format(vk::Format::UNDEFINED);
+
     let info = [vk::GraphicsPipelineCreateInfo::default()
         .stages(&stages)
         .vertex_input_state(&vertex_input)
@@ -589,8 +592,7 @@ fn create_blur_graphics_pipeline(
         .color_blend_state(&color_blending)
         .dynamic_state(&dynamic_state)
         .layout(layout)
-        .render_pass(render_pass)
-        .subpass(0)];
+        .push_next(&mut rendering_info)];
 
     let pipeline =
         unsafe { device.create_graphics_pipelines(vk::PipelineCache::null(), &info, None) }
@@ -602,23 +604,4 @@ fn create_blur_graphics_pipeline(
     }
 
     pipeline
-}
-
-fn write_blur_descriptor(
-    device: &ash::Device,
-    set: vk::DescriptorSet,
-    view: vk::ImageView,
-    sampler: vk::Sampler,
-) {
-    let info = [vk::DescriptorImageInfo {
-        sampler,
-        image_view: view,
-        image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-    }];
-    let write = [vk::WriteDescriptorSet::default()
-        .dst_set(set)
-        .dst_binding(0)
-        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-        .image_info(&info)];
-    unsafe { device.update_descriptor_sets(&write, &[]) };
 }

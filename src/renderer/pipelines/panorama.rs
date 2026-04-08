@@ -16,9 +16,6 @@ pub struct PanoramaPipeline {
     pipeline_layout: vk::PipelineLayout,
     params_layout: vk::DescriptorSetLayout,
     cube_layout: vk::DescriptorSetLayout,
-    descriptor_pool: vk::DescriptorPool,
-    params_set: vk::DescriptorSet,
-    cube_set: vk::DescriptorSet,
     params_buffer: vk::Buffer,
     params_allocation: Option<Allocation>,
     cube_image: vk::Image,
@@ -28,19 +25,23 @@ pub struct PanoramaPipeline {
     staging_buffer: vk::Buffer,
     staging_allocation: Option<Allocation>,
     has_cubemap: bool,
+    tex_descriptor_pool: vk::DescriptorPool,
+    tex_descriptor_set: vk::DescriptorSet,
 }
 
 impl PanoramaPipeline {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: &ash::Device,
         queue: vk::Queue,
         command_pool: vk::CommandPool,
-        render_pass: vk::RenderPass,
+        color_format: vk::Format,
+        depth_format: vk::Format,
         allocator: &Arc<Mutex<Allocator>>,
         jar_assets_dir: &std::path::Path,
         asset_index: &Option<AssetIndex>,
     ) -> Self {
-        let params_layout = util::create_descriptor_set_layout(
+        let params_layout = util::create_push_descriptor_set_layout(
             device,
             vk::DescriptorType::UNIFORM_BUFFER,
             vk::ShaderStageFlags::FRAGMENT,
@@ -56,52 +57,10 @@ impl PanoramaPipeline {
         let pipeline_layout = unsafe { device.create_pipeline_layout(&layout_info, None) }
             .expect("failed to create panorama pipeline layout");
 
-        let pipeline = create_pipeline(device, render_pass, pipeline_layout);
-
-        let pool_sizes = [
-            vk::DescriptorPoolSize {
-                ty: vk::DescriptorType::UNIFORM_BUFFER,
-                descriptor_count: 1,
-            },
-            vk::DescriptorPoolSize {
-                ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                descriptor_count: 1,
-            },
-        ];
-        let pool_info = vk::DescriptorPoolCreateInfo::default()
-            .max_sets(2)
-            .pool_sizes(&pool_sizes);
-        let descriptor_pool = unsafe { device.create_descriptor_pool(&pool_info, None) }
-            .expect("failed to create panorama descriptor pool");
-
-        let params_layouts = [params_layout];
-        let params_alloc = vk::DescriptorSetAllocateInfo::default()
-            .descriptor_pool(descriptor_pool)
-            .set_layouts(&params_layouts);
-        let params_set = unsafe { device.allocate_descriptor_sets(&params_alloc) }
-            .expect("failed to allocate params descriptor set")[0];
-
-        let cube_layouts = [cube_layout];
-        let cube_alloc = vk::DescriptorSetAllocateInfo::default()
-            .descriptor_pool(descriptor_pool)
-            .set_layouts(&cube_layouts);
-        let cube_set = unsafe { device.allocate_descriptor_sets(&cube_alloc) }
-            .expect("failed to allocate cube descriptor set")[0];
+        let pipeline = create_pipeline(device, color_format, depth_format, pipeline_layout);
 
         let (params_buffer, params_allocation) =
             util::create_uniform_buffer(device, allocator, 16, "panorama_params");
-
-        let buffer_info = [vk::DescriptorBufferInfo {
-            buffer: params_buffer,
-            offset: 0,
-            range: 16,
-        }];
-        let write = vk::WriteDescriptorSet::default()
-            .dst_set(params_set)
-            .dst_binding(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .buffer_info(&buffer_info);
-        unsafe { device.update_descriptor_sets(&[write], &[]) };
 
         let (
             cube_image,
@@ -120,26 +79,39 @@ impl PanoramaPipeline {
             asset_index,
         );
 
-        let image_info = [vk::DescriptorImageInfo {
+        let pool_sizes = [vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 1,
+        }];
+        let pool_info = vk::DescriptorPoolCreateInfo::default()
+            .max_sets(1)
+            .pool_sizes(&pool_sizes);
+        let tex_descriptor_pool = unsafe { device.create_descriptor_pool(&pool_info, None) }
+            .expect("failed to create panorama tex descriptor pool");
+
+        let alloc_info = vk::DescriptorSetAllocateInfo::default()
+            .descriptor_pool(tex_descriptor_pool)
+            .set_layouts(std::slice::from_ref(&cube_layout));
+        let tex_descriptor_set = unsafe { device.allocate_descriptor_sets(&alloc_info) }
+            .expect("failed to allocate panorama tex descriptor set")[0];
+
+        let img_info = [vk::DescriptorImageInfo {
             sampler: cube_sampler,
             image_view: cube_view,
             image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         }];
-        let cube_write = vk::WriteDescriptorSet::default()
-            .dst_set(cube_set)
+        let write = vk::WriteDescriptorSet::default()
+            .dst_set(tex_descriptor_set)
             .dst_binding(0)
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&image_info);
-        unsafe { device.update_descriptor_sets(&[cube_write], &[]) };
+            .image_info(&img_info);
+        unsafe { device.update_descriptor_sets(&[write], &[]) };
 
         Self {
             pipeline,
             pipeline_layout,
             params_layout,
             cube_layout,
-            descriptor_pool,
-            params_set,
-            cube_set,
             params_buffer,
             params_allocation: Some(params_allocation),
             cube_image,
@@ -149,12 +121,15 @@ impl PanoramaPipeline {
             staging_buffer,
             staging_allocation: Some(staging_alloc_mem),
             has_cubemap,
+            tex_descriptor_pool,
+            tex_descriptor_set,
         }
     }
 
     pub fn draw(
         &mut self,
         device: &ash::Device,
+        push_desc: &ash::khr::push_descriptor::Device,
         cmd: vk::CommandBuffer,
         scroll: f32,
         aspect: f32,
@@ -172,14 +147,31 @@ impl PanoramaPipeline {
             .unwrap()[..16]
             .copy_from_slice(bytemuck::cast_slice(&data));
 
+        let buffer_info = [vk::DescriptorBufferInfo {
+            buffer: self.params_buffer,
+            offset: 0,
+            range: 16,
+        }];
+        let params_write = vk::WriteDescriptorSet::default()
+            .dst_binding(0)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .buffer_info(&buffer_info);
+
         unsafe {
             device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
-            device.cmd_bind_descriptor_sets(
+            push_desc.cmd_push_descriptor_set(
                 cmd,
                 vk::PipelineBindPoint::GRAPHICS,
                 self.pipeline_layout,
                 0,
-                &[self.params_set, self.cube_set],
+                &[params_write],
+            );
+            device.cmd_bind_descriptor_sets(
+                cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.pipeline_layout,
+                1,
+                &[self.tex_descriptor_set],
                 &[],
             );
             device.cmd_draw(cmd, 3, 1, 0, 0);
@@ -246,22 +238,17 @@ impl PanoramaPipeline {
         self.staging_allocation = Some(staging_alloc);
         self.has_cubemap = has_cubemap;
 
-        let image_info = [vk::DescriptorImageInfo {
+        let img_info = [vk::DescriptorImageInfo {
             sampler: self.cube_sampler,
             image_view: self.cube_view,
             image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         }];
-        let cube_write = vk::WriteDescriptorSet::default()
-            .dst_set(self.cube_set)
+        let write = vk::WriteDescriptorSet::default()
+            .dst_set(self.tex_descriptor_set)
             .dst_binding(0)
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&image_info);
-        unsafe { device.update_descriptor_sets(&[cube_write], &[]) };
-    }
-
-    pub fn recreate_pipeline(&mut self, device: &ash::Device, render_pass: vk::RenderPass) {
-        unsafe { device.destroy_pipeline(self.pipeline, None) };
-        self.pipeline = create_pipeline(device, render_pass, self.pipeline_layout);
+            .image_info(&img_info);
+        unsafe { device.update_descriptor_sets(&[write], &[]) };
     }
 
     pub fn destroy(&mut self, device: &ash::Device, allocator: &Arc<Mutex<Allocator>>) {
@@ -289,9 +276,9 @@ impl PanoramaPipeline {
         drop(alloc);
 
         unsafe {
+            device.destroy_descriptor_pool(self.tex_descriptor_pool, None);
             device.destroy_pipeline(self.pipeline, None);
             device.destroy_pipeline_layout(self.pipeline_layout, None);
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
             device.destroy_descriptor_set_layout(self.params_layout, None);
             device.destroy_descriptor_set_layout(self.cube_layout, None);
         }
@@ -750,7 +737,8 @@ fn create_fallback_cubemap(
 
 fn create_pipeline(
     device: &ash::Device,
-    render_pass: vk::RenderPass,
+    color_format: vk::Format,
+    depth_format: vk::Format,
     layout: vk::PipelineLayout,
 ) -> vk::Pipeline {
     let vert_spv = shader::include_spirv!("panorama.vert.spv");
@@ -803,6 +791,11 @@ fn create_pipeline(
     let dynamic_state =
         vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
 
+    let color_formats = [color_format];
+    let mut rendering_info = vk::PipelineRenderingCreateInfo::default()
+        .color_attachment_formats(&color_formats)
+        .depth_attachment_format(depth_format);
+
     let pipeline_info = [vk::GraphicsPipelineCreateInfo::default()
         .stages(&stages)
         .vertex_input_state(&vertex_input)
@@ -814,8 +807,7 @@ fn create_pipeline(
         .color_blend_state(&color_blending)
         .dynamic_state(&dynamic_state)
         .layout(layout)
-        .render_pass(render_pass)
-        .subpass(0)];
+        .push_next(&mut rendering_info)];
 
     let pipeline = unsafe {
         device.create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_info, None)

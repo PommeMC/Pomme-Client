@@ -26,9 +26,6 @@ pub struct BlockOverlayPipeline {
     pipeline_layout: vk::PipelineLayout,
     camera_layout: vk::DescriptorSetLayout,
     texture_layout: vk::DescriptorSetLayout,
-    descriptor_pool: vk::DescriptorPool,
-    camera_sets: Vec<vk::DescriptorSet>,
-    texture_set: vk::DescriptorSet,
     camera_buffers: Vec<vk::Buffer>,
     camera_allocations: Vec<Allocation>,
     vertex_buffer: vk::Buffer,
@@ -37,19 +34,23 @@ pub struct BlockOverlayPipeline {
     atlas_view: vk::ImageView,
     atlas_sampler: vk::Sampler,
     atlas_allocation: Allocation,
+    tex_descriptor_pool: vk::DescriptorPool,
+    tex_descriptor_set: vk::DescriptorSet,
 }
 
 impl BlockOverlayPipeline {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         device: &ash::Device,
         queue: vk::Queue,
         command_pool: vk::CommandPool,
-        render_pass: vk::RenderPass,
+        color_format: vk::Format,
+        depth_format: vk::Format,
         allocator: &Arc<Mutex<Allocator>>,
         jar_assets_dir: &Path,
         asset_index: &Option<AssetIndex>,
     ) -> Self {
-        let camera_layout = util::create_descriptor_set_layout(
+        let camera_layout = util::create_push_descriptor_set_layout(
             device,
             vk::DescriptorType::UNIFORM_BUFFER,
             vk::ShaderStageFlags::VERTEX,
@@ -65,59 +66,18 @@ impl BlockOverlayPipeline {
         let pipeline_layout = unsafe { device.create_pipeline_layout(&layout_info, None) }
             .expect("failed to create block overlay pipeline layout");
 
-        let pipeline = create_pipeline(device, render_pass, pipeline_layout);
-
-        let pool_sizes = [
-            vk::DescriptorPoolSize {
-                ty: vk::DescriptorType::UNIFORM_BUFFER,
-                descriptor_count: MAX_FRAMES_IN_FLIGHT as u32,
-            },
-            vk::DescriptorPoolSize {
-                ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                descriptor_count: 1,
-            },
-        ];
-        let pool_info = vk::DescriptorPoolCreateInfo::default()
-            .max_sets((MAX_FRAMES_IN_FLIGHT + 1) as u32)
-            .pool_sizes(&pool_sizes);
-        let descriptor_pool = unsafe { device.create_descriptor_pool(&pool_info, None) }
-            .expect("failed to create block overlay descriptor pool");
-
-        let cam_layouts: Vec<_> = (0..MAX_FRAMES_IN_FLIGHT).map(|_| camera_layout).collect();
-        let cam_alloc_info = vk::DescriptorSetAllocateInfo::default()
-            .descriptor_pool(descriptor_pool)
-            .set_layouts(&cam_layouts);
-        let camera_sets = unsafe { device.allocate_descriptor_sets(&cam_alloc_info) }
-            .expect("failed to allocate block overlay camera sets");
-
-        let tex_layouts = [texture_layout];
-        let tex_alloc_info = vk::DescriptorSetAllocateInfo::default()
-            .descriptor_pool(descriptor_pool)
-            .set_layouts(&tex_layouts);
-        let texture_set = unsafe { device.allocate_descriptor_sets(&tex_alloc_info) }
-            .expect("failed to allocate block overlay texture set")[0];
+        let pipeline = create_pipeline(device, color_format, depth_format, pipeline_layout);
 
         let mut camera_buffers = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
         let mut camera_allocations = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
 
-        for &set in &camera_sets {
+        for _ in 0..MAX_FRAMES_IN_FLIGHT {
             let (buf, alloc) = util::create_uniform_buffer(
                 device,
                 allocator,
                 std::mem::size_of::<CameraUniform>() as u64,
                 "block_overlay_camera",
             );
-            let buffer_info = [vk::DescriptorBufferInfo {
-                buffer: buf,
-                offset: 0,
-                range: std::mem::size_of::<CameraUniform>() as u64,
-            }];
-            let write = vk::WriteDescriptorSet::default()
-                .dst_set(set)
-                .dst_binding(0)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(&buffer_info);
-            unsafe { device.update_descriptor_sets(&[write], &[]) };
             camera_buffers.push(buf);
             camera_allocations.push(alloc);
         }
@@ -133,18 +93,6 @@ impl BlockOverlayPipeline {
 
         let atlas_sampler = unsafe { util::create_nearest_sampler(device) };
 
-        let image_info = [vk::DescriptorImageInfo {
-            sampler: atlas_sampler,
-            image_view: atlas_view,
-            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-        }];
-        let tex_write = vk::WriteDescriptorSet::default()
-            .dst_set(texture_set)
-            .dst_binding(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&image_info);
-        unsafe { device.update_descriptor_sets(&[tex_write], &[]) };
-
         let placeholder = [OverlayVertex {
             position: [0.0; 3],
             uv: [0.0; 2],
@@ -158,14 +106,39 @@ impl BlockOverlayPipeline {
             "block_overlay_vertices",
         );
 
+        let pool_sizes = [vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 1,
+        }];
+        let pool_info = vk::DescriptorPoolCreateInfo::default()
+            .max_sets(1)
+            .pool_sizes(&pool_sizes);
+        let tex_descriptor_pool = unsafe { device.create_descriptor_pool(&pool_info, None) }
+            .expect("failed to create block overlay tex descriptor pool");
+
+        let alloc_info = vk::DescriptorSetAllocateInfo::default()
+            .descriptor_pool(tex_descriptor_pool)
+            .set_layouts(std::slice::from_ref(&texture_layout));
+        let tex_descriptor_set = unsafe { device.allocate_descriptor_sets(&alloc_info) }
+            .expect("failed to allocate block overlay tex descriptor set")[0];
+
+        let img_info = [vk::DescriptorImageInfo {
+            sampler: atlas_sampler,
+            image_view: atlas_view,
+            image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        }];
+        let write = vk::WriteDescriptorSet::default()
+            .dst_set(tex_descriptor_set)
+            .dst_binding(0)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .image_info(&img_info);
+        unsafe { device.update_descriptor_sets(&[write], &[]) };
+
         Self {
             pipeline,
             pipeline_layout,
             camera_layout,
             texture_layout,
-            descriptor_pool,
-            camera_sets,
-            texture_set,
             camera_buffers,
             camera_allocations,
             vertex_buffer,
@@ -174,6 +147,8 @@ impl BlockOverlayPipeline {
             atlas_view,
             atlas_sampler,
             atlas_allocation,
+            tex_descriptor_pool,
+            tex_descriptor_set,
         }
     }
 
@@ -186,6 +161,7 @@ impl BlockOverlayPipeline {
     pub fn draw(
         &mut self,
         device: &ash::Device,
+        push_desc: &ash::khr::push_descriptor::Device,
         cmd: vk::CommandBuffer,
         frame: usize,
         block_pos: &BlockPos,
@@ -195,24 +171,36 @@ impl BlockOverlayPipeline {
         let bytes = bytemuck::cast_slice::<OverlayVertex, u8>(&vertices);
         self.vertex_allocation.mapped_slice_mut().unwrap()[..bytes.len()].copy_from_slice(bytes);
 
+        let cam_buf_info = [vk::DescriptorBufferInfo {
+            buffer: self.camera_buffers[frame],
+            offset: 0,
+            range: std::mem::size_of::<CameraUniform>() as u64,
+        }];
+        let cam_write = vk::WriteDescriptorSet::default()
+            .dst_binding(0)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .buffer_info(&cam_buf_info);
+
         unsafe {
             device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, self.pipeline);
-            device.cmd_bind_descriptor_sets(
+            push_desc.cmd_push_descriptor_set(
                 cmd,
                 vk::PipelineBindPoint::GRAPHICS,
                 self.pipeline_layout,
                 0,
-                &[self.camera_sets[frame], self.texture_set],
+                &[cam_write],
+            );
+            device.cmd_bind_descriptor_sets(
+                cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.pipeline_layout,
+                1,
+                &[self.tex_descriptor_set],
                 &[],
             );
             device.cmd_bind_vertex_buffers(cmd, 0, &[self.vertex_buffer], &[0]);
             device.cmd_draw(cmd, 36, 1, 0, 0);
         }
-    }
-
-    pub fn recreate_pipeline(&mut self, device: &ash::Device, render_pass: vk::RenderPass) {
-        unsafe { device.destroy_pipeline(self.pipeline, None) };
-        self.pipeline = create_pipeline(device, render_pass, self.pipeline_layout);
     }
 
     pub fn destroy(&mut self, device: &ash::Device, allocator: &Arc<Mutex<Allocator>>) {
@@ -247,9 +235,9 @@ impl BlockOverlayPipeline {
         drop(alloc);
 
         unsafe {
+            device.destroy_descriptor_pool(self.tex_descriptor_pool, None);
             device.destroy_pipeline(self.pipeline, None);
             device.destroy_pipeline_layout(self.pipeline_layout, None);
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
             device.destroy_descriptor_set_layout(self.camera_layout, None);
             device.destroy_descriptor_set_layout(self.texture_layout, None);
         }
@@ -347,7 +335,8 @@ fn load_destroy_atlas(
 
 fn create_pipeline(
     device: &ash::Device,
-    render_pass: vk::RenderPass,
+    color_format: vk::Format,
+    depth_format: vk::Format,
     layout: vk::PipelineLayout,
 ) -> vk::Pipeline {
     let vert_spv = shader::include_spirv!("block_overlay.vert.spv");
@@ -433,6 +422,11 @@ fn create_pipeline(
     let dynamic_state =
         vk::PipelineDynamicStateCreateInfo::default().dynamic_states(&dynamic_states);
 
+    let color_formats = [color_format];
+    let mut rendering_info = vk::PipelineRenderingCreateInfo::default()
+        .color_attachment_formats(&color_formats)
+        .depth_attachment_format(depth_format);
+
     let pipeline_info = [vk::GraphicsPipelineCreateInfo::default()
         .stages(&stages)
         .vertex_input_state(&vertex_input)
@@ -444,8 +438,7 @@ fn create_pipeline(
         .color_blend_state(&color_blending)
         .dynamic_state(&dynamic_state)
         .layout(layout)
-        .render_pass(render_pass)
-        .subpass(0)];
+        .push_next(&mut rendering_info)];
 
     let pipeline = unsafe {
         device.create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_info, None)
