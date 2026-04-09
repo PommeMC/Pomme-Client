@@ -11,6 +11,7 @@ use crate::renderer::util;
 
 pub struct ChunkPipeline {
     pub pipeline: vk::Pipeline,
+    pub translucent_pipeline: vk::Pipeline,
     pub pipeline_layout: vk::PipelineLayout,
     pub descriptor_set_layout_camera: vk::DescriptorSetLayout,
     pub descriptor_set_layout_atlas: vk::DescriptorSetLayout,
@@ -45,6 +46,8 @@ impl ChunkPipeline {
             .expect("failed to create pipeline layout");
 
         let pipeline = create_pipeline(device, render_pass, pipeline_layout);
+        let translucent_pipeline =
+            create_translucent_pipeline(device, render_pass, pipeline_layout);
 
         let pool_sizes = [
             vk::DescriptorPoolSize {
@@ -117,6 +120,7 @@ impl ChunkPipeline {
 
         Self {
             pipeline,
+            translucent_pipeline,
             pipeline_layout,
             descriptor_set_layout_camera: camera_layout,
             descriptor_set_layout_atlas: atlas_layout,
@@ -162,6 +166,24 @@ impl ChunkPipeline {
         }
     }
 
+    pub fn bind_translucent(&self, device: &ash::Device, cmd: vk::CommandBuffer, frame: usize) {
+        unsafe {
+            device.cmd_bind_pipeline(
+                cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.translucent_pipeline,
+            );
+            device.cmd_bind_descriptor_sets(
+                cmd,
+                vk::PipelineBindPoint::GRAPHICS,
+                self.pipeline_layout,
+                0,
+                &[self.camera_sets[frame], self.atlas_set],
+                &[],
+            );
+        }
+    }
+
     pub fn destroy(&mut self, device: &ash::Device, allocator: &Arc<Mutex<Allocator>>) {
         let mut alloc = allocator.lock().unwrap();
         for i in 0..MAX_FRAMES_IN_FLIGHT {
@@ -176,6 +198,7 @@ impl ChunkPipeline {
 
         unsafe {
             device.destroy_pipeline(self.pipeline, None);
+            device.destroy_pipeline(self.translucent_pipeline, None);
             device.destroy_pipeline_layout(self.pipeline_layout, None);
             device.destroy_descriptor_pool(self.descriptor_pool, None);
             device.destroy_descriptor_set_layout(self.descriptor_set_layout_camera, None);
@@ -184,14 +207,15 @@ impl ChunkPipeline {
     }
 }
 
-fn create_pipeline(
+fn create_chunk_pipeline(
     device: &ash::Device,
     render_pass: vk::RenderPass,
     layout: vk::PipelineLayout,
+    frag_spv: &[u8],
+    depth_write: bool,
+    blend: bool,
 ) -> vk::Pipeline {
     let vert_spv = shader::include_spirv!("chunk.vert.spv");
-    let frag_spv = shader::include_spirv!("chunk.frag.spv");
-
     let vert_module = shader::create_shader_module(device, vert_spv);
     let frag_module = shader::create_shader_module(device, frag_spv);
 
@@ -232,13 +256,26 @@ fn create_pipeline(
 
     let depth_stencil = vk::PipelineDepthStencilStateCreateInfo::default()
         .depth_test_enable(true)
-        .depth_write_enable(true)
+        .depth_write_enable(depth_write)
         .depth_compare_op(vk::CompareOp::LESS_OR_EQUAL);
 
-    let blend_attachment = [vk::PipelineColorBlendAttachmentState {
-        blend_enable: vk::FALSE,
-        color_write_mask: vk::ColorComponentFlags::RGBA,
-        ..Default::default()
+    let blend_attachment = [if blend {
+        vk::PipelineColorBlendAttachmentState {
+            blend_enable: vk::TRUE,
+            src_color_blend_factor: vk::BlendFactor::SRC_ALPHA,
+            dst_color_blend_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+            color_blend_op: vk::BlendOp::ADD,
+            src_alpha_blend_factor: vk::BlendFactor::ONE,
+            dst_alpha_blend_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+            alpha_blend_op: vk::BlendOp::ADD,
+            color_write_mask: vk::ColorComponentFlags::RGBA,
+        }
+    } else {
+        vk::PipelineColorBlendAttachmentState {
+            blend_enable: vk::FALSE,
+            color_write_mask: vk::ColorComponentFlags::RGBA,
+            ..Default::default()
+        }
     }];
     let color_blending =
         vk::PipelineColorBlendStateCreateInfo::default().attachments(&blend_attachment);
@@ -272,4 +309,34 @@ fn create_pipeline(
     }
 
     pipeline
+}
+
+fn create_pipeline(
+    device: &ash::Device,
+    render_pass: vk::RenderPass,
+    layout: vk::PipelineLayout,
+) -> vk::Pipeline {
+    create_chunk_pipeline(
+        device,
+        render_pass,
+        layout,
+        shader::include_spirv!("chunk.frag.spv"),
+        true,
+        false,
+    )
+}
+
+fn create_translucent_pipeline(
+    device: &ash::Device,
+    render_pass: vk::RenderPass,
+    layout: vk::PipelineLayout,
+) -> vk::Pipeline {
+    create_chunk_pipeline(
+        device,
+        render_pass,
+        layout,
+        shader::include_spirv!("chunk_translucent.frag.spv"),
+        false,
+        true,
+    )
 }

@@ -66,10 +66,34 @@ struct ModelRef {
 #[derive(Deserialize, Default, Clone)]
 struct ModelFile {
     parent: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_texture_map")]
     textures: HashMap<String, String>,
     #[serde(default)]
     elements: Vec<ElementDef>,
+}
+
+fn deserialize_texture_map<'de, D>(deserializer: D) -> Result<HashMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Deserialize;
+    let raw: HashMap<String, serde_json::Value> = HashMap::deserialize(deserializer)?;
+    let mut result = HashMap::new();
+    for (key, value) in raw {
+        let tex = match &value {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Object(obj) => obj
+                .get("sprite")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            _ => continue,
+        };
+        if !tex.is_empty() {
+            result.insert(key, tex);
+        }
+    }
+    Ok(result)
 }
 
 #[derive(Deserialize, Clone)]

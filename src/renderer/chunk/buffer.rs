@@ -10,6 +10,20 @@ use crate::renderer::MAX_FRAMES_IN_FLIGHT;
 use crate::renderer::shader;
 use crate::renderer::util;
 
+fn quad_center(vertices: &[ChunkVertex], indices: &[u32]) -> [f32; 3] {
+    let mut cx = 0.0f32;
+    let mut cy = 0.0f32;
+    let mut cz = 0.0f32;
+    let n = indices.len().min(3) as f32;
+    for &i in indices.iter().take(3) {
+        let p = &vertices[i as usize].position;
+        cx += p[0];
+        cy += p[1];
+        cz += p[2];
+    }
+    [cx / n, cy / n, cz / n]
+}
+
 const BUCKET_VERTICES: u32 = 32768;
 const BUCKET_INDICES: u32 = 49152;
 const VERTEX_SIZE: u64 = std::mem::size_of::<ChunkVertex>() as u64;
@@ -90,6 +104,11 @@ struct ChunkAlloc {
     uploaded_at: std::time::Instant,
 }
 
+struct TranslucentChunkData {
+    vertices: Vec<ChunkVertex>,
+    indices: Vec<u32>,
+}
+
 pub struct ChunkBufferStore {
     total_buckets: u32,
     vertex_buffer: vk::Buffer,
@@ -123,6 +142,16 @@ pub struct ChunkBufferStore {
     frustum_buffers: Vec<vk::Buffer>,
     frustum_allocs: Vec<Allocation>,
     fade_enabled: bool,
+
+    translucent_chunks: HashMap<ChunkPos, TranslucentChunkData>,
+    translucent_vertex_buffer: vk::Buffer,
+    translucent_vertex_alloc: Allocation,
+    translucent_index_buffer: vk::Buffer,
+    translucent_index_alloc: Allocation,
+    translucent_buf_capacity: u64,
+    translucent_index_count: u32,
+    translucent_dirty: bool,
+    last_translucent_sort_pos: [f32; 3],
 }
 
 impl ChunkBufferStore {
@@ -351,6 +380,22 @@ impl ChunkBufferStore {
             unsafe { device.update_descriptor_sets(&writes, &[]) };
         }
 
+        let translucent_buf_capacity = 1024 * 1024; // 1 MB initial
+        let (translucent_vertex_buffer, translucent_vertex_alloc) = util::create_host_buffer(
+            device,
+            allocator,
+            translucent_buf_capacity,
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+            "translucent_vertex",
+        );
+        let (translucent_index_buffer, translucent_index_alloc) = util::create_host_buffer(
+            device,
+            allocator,
+            translucent_buf_capacity,
+            vk::BufferUsageFlags::INDEX_BUFFER,
+            "translucent_index",
+        );
+
         Self {
             total_buckets,
             vertex_buffer,
@@ -381,16 +426,62 @@ impl ChunkBufferStore {
             frustum_buffers,
             frustum_allocs,
             fade_enabled: false,
+            translucent_chunks: HashMap::new(),
+            translucent_vertex_buffer,
+            translucent_vertex_alloc,
+            translucent_index_buffer,
+            translucent_index_alloc,
+            translucent_buf_capacity,
+            translucent_index_count: 0,
+            translucent_dirty: false,
+            last_translucent_sort_pos: [0.0; 3],
         }
     }
 
+    fn translucent_needs_sort(&self, camera_pos: [f32; 3]) -> bool {
+        if self.translucent_chunks.is_empty() {
+            return false;
+        }
+        let dx = camera_pos[0] - self.last_translucent_sort_pos[0];
+        let dy = camera_pos[1] - self.last_translucent_sort_pos[1];
+        let dz = camera_pos[2] - self.last_translucent_sort_pos[2];
+        dx * dx + dy * dy + dz * dz > 1.0
+    }
+
     pub fn upload(&mut self, device: &ash::Device, queue: vk::Queue, mesh: &ChunkMeshData) {
-        if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+        let has_opaque = !mesh.vertices.is_empty() && !mesh.indices.is_empty();
+        let has_translucent =
+            !mesh.translucent_vertices.is_empty() && !mesh.translucent_indices.is_empty();
+
+        if !has_opaque && !has_translucent {
             self.remove(&mesh.pos);
             return;
         }
 
-        self.remove(&mesh.pos);
+        if has_translucent {
+            self.translucent_chunks.insert(
+                mesh.pos,
+                TranslucentChunkData {
+                    vertices: mesh.translucent_vertices.clone(),
+                    indices: mesh.translucent_indices.clone(),
+                },
+            );
+            self.translucent_dirty = true;
+        } else if self.translucent_chunks.remove(&mesh.pos).is_some() {
+            self.translucent_dirty = true;
+        }
+
+        if !has_opaque {
+            if let Some(alloc) = self.chunks.remove(&mesh.pos) {
+                for bucket in alloc.buckets {
+                    self.free_buckets.push_back(bucket);
+                }
+                self.meta_dirty = true;
+            }
+            return;
+        }
+
+        self.remove_opaque(&mesh.pos);
 
         let num_buckets = mesh.vertices.len().div_ceil(BUCKET_VERTICES as usize) as u32;
         if self.free_buckets.len() < num_buckets as usize {
@@ -567,12 +658,19 @@ impl ChunkBufferStore {
         self.meta_dirty = true;
     }
 
-    pub fn remove(&mut self, pos: &ChunkPos) {
+    fn remove_opaque(&mut self, pos: &ChunkPos) {
         if let Some(alloc) = self.chunks.remove(pos) {
             for bucket in alloc.buckets {
                 self.free_buckets.push_back(bucket);
             }
             self.meta_dirty = true;
+        }
+    }
+
+    pub fn remove(&mut self, pos: &ChunkPos) {
+        self.remove_opaque(pos);
+        if self.translucent_chunks.remove(pos).is_some() {
+            self.translucent_dirty = true;
         }
     }
 
@@ -585,6 +683,10 @@ impl ChunkBufferStore {
         self.cached_meta.clear();
         self.meta_dirty = true;
         self.fade_enabled = false;
+        self.translucent_chunks.clear();
+        self.translucent_index_count = 0;
+        self.translucent_dirty = false;
+        self.last_translucent_sort_pos = [0.0; 3];
     }
 
     pub fn chunk_count(&self) -> u32 {
@@ -744,6 +846,147 @@ impl ChunkBufferStore {
         }
     }
 
+    pub fn rebuild_translucent(
+        &mut self,
+        device: &ash::Device,
+        allocator: &Arc<Mutex<Allocator>>,
+        camera_pos: [f32; 3],
+    ) {
+        if !self.translucent_dirty && !self.translucent_needs_sort(camera_pos) {
+            return;
+        }
+        self.translucent_dirty = false;
+        self.last_translucent_sort_pos = camera_pos;
+
+        if self.translucent_chunks.is_empty() {
+            self.translucent_index_count = 0;
+            return;
+        }
+
+        let total_verts: usize = self
+            .translucent_chunks
+            .values()
+            .map(|c| c.vertices.len())
+            .sum();
+        let total_idxs: usize = self
+            .translucent_chunks
+            .values()
+            .map(|c| c.indices.len())
+            .sum();
+
+        if total_verts == 0 || total_idxs == 0 {
+            self.translucent_index_count = 0;
+            return;
+        }
+
+        let needed_v = (total_verts as u64) * VERTEX_SIZE;
+        let needed_i = (total_idxs as u64) * INDEX_SIZE;
+        let needed = needed_v.max(needed_i);
+
+        if needed > self.translucent_buf_capacity {
+            let new_cap = (needed * 2).max(self.translucent_buf_capacity * 2);
+            let mut alloc = allocator.lock().unwrap();
+            unsafe { device.destroy_buffer(self.translucent_vertex_buffer, None) };
+            alloc
+                .free(std::mem::replace(
+                    &mut self.translucent_vertex_alloc,
+                    unsafe { std::mem::zeroed() },
+                ))
+                .ok();
+            unsafe { device.destroy_buffer(self.translucent_index_buffer, None) };
+            alloc
+                .free(std::mem::replace(
+                    &mut self.translucent_index_alloc,
+                    unsafe { std::mem::zeroed() },
+                ))
+                .ok();
+            drop(alloc);
+
+            let (vb, va) = util::create_host_buffer(
+                device,
+                allocator,
+                new_cap,
+                vk::BufferUsageFlags::VERTEX_BUFFER,
+                "translucent_vertex",
+            );
+            let (ib, ia) = util::create_host_buffer(
+                device,
+                allocator,
+                new_cap,
+                vk::BufferUsageFlags::INDEX_BUFFER,
+                "translucent_index",
+            );
+            self.translucent_vertex_buffer = vb;
+            self.translucent_vertex_alloc = va;
+            self.translucent_index_buffer = ib;
+            self.translucent_index_alloc = ia;
+            self.translucent_buf_capacity = new_cap;
+        }
+
+        let mut sorted_keys: Vec<ChunkPos> = self.translucent_chunks.keys().copied().collect();
+        sorted_keys.sort_by(|a, b| {
+            let da = (a.x as f32 * 16.0 + 8.0 - camera_pos[0]).powi(2)
+                + (a.z as f32 * 16.0 + 8.0 - camera_pos[2]).powi(2);
+            let db = (b.x as f32 * 16.0 + 8.0 - camera_pos[0]).powi(2)
+                + (b.z as f32 * 16.0 + 8.0 - camera_pos[2]).powi(2);
+            db.partial_cmp(&da).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let v_slice = self.translucent_vertex_alloc.mapped_slice_mut().unwrap();
+        let mut v_offset = 0usize;
+        let mut combined_indices: Vec<u32> = Vec::with_capacity(total_idxs);
+        let mut vertex_base = 0u32;
+
+        for pos in &sorted_keys {
+            let chunk_data = &self.translucent_chunks[pos];
+            let verts_bytes = bytemuck::cast_slice(&chunk_data.vertices);
+            v_slice[v_offset..v_offset + verts_bytes.len()].copy_from_slice(verts_bytes);
+            v_offset += verts_bytes.len();
+
+            let mut quads: Vec<(f32, [u32; 6])> = Vec::new();
+            for quad_indices in chunk_data.indices.chunks_exact(6) {
+                let center = quad_center(&chunk_data.vertices, quad_indices);
+                let dist = (center[0] - camera_pos[0]).powi(2)
+                    + (center[1] - camera_pos[1]).powi(2)
+                    + (center[2] - camera_pos[2]).powi(2);
+                let mut qi = [0u32; 6];
+                qi.copy_from_slice(quad_indices);
+                quads.push((dist, qi));
+            }
+            quads.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+            for (_, qi) in &quads {
+                for &idx in qi {
+                    combined_indices.push(idx + vertex_base);
+                }
+            }
+            vertex_base += chunk_data.vertices.len() as u32;
+        }
+
+        let i_slice = self.translucent_index_alloc.mapped_slice_mut().unwrap();
+        let idx_bytes = bytemuck::cast_slice(&combined_indices);
+        i_slice[..idx_bytes.len()].copy_from_slice(idx_bytes);
+
+        self.translucent_index_count = combined_indices.len() as u32;
+    }
+
+    pub fn draw_translucent(&self, device: &ash::Device, cmd: vk::CommandBuffer) {
+        if self.translucent_index_count == 0 {
+            return;
+        }
+
+        unsafe {
+            device.cmd_bind_vertex_buffers(cmd, 0, &[self.translucent_vertex_buffer], &[0]);
+            device.cmd_bind_index_buffer(
+                cmd,
+                self.translucent_index_buffer,
+                0,
+                vk::IndexType::UINT32,
+            );
+            device.cmd_draw_indexed(cmd, self.translucent_index_count, 1, 0, 0, 0);
+        }
+    }
+
     pub fn destroy(&mut self, device: &ash::Device, allocator: &Arc<Mutex<Allocator>>) {
         let mut alloc = allocator.lock().unwrap();
         unsafe {
@@ -795,6 +1038,22 @@ impl ChunkBufferStore {
                 std::mem::zeroed()
             }))
             .ok();
+
+        unsafe { device.destroy_buffer(self.translucent_vertex_buffer, None) };
+        alloc
+            .free(std::mem::replace(
+                &mut self.translucent_vertex_alloc,
+                unsafe { std::mem::zeroed() },
+            ))
+            .ok();
+        unsafe { device.destroy_buffer(self.translucent_index_buffer, None) };
+        alloc
+            .free(std::mem::replace(
+                &mut self.translucent_index_alloc,
+                unsafe { std::mem::zeroed() },
+            ))
+            .ok();
+
         drop(alloc);
 
         unsafe {

@@ -947,12 +947,17 @@ impl Renderer {
             self.ctx.device.begin_command_buffer(cmd, &begin_info)?;
 
             if matches!(&mode, RenderMode::World { .. }) {
-                let frustum = self.camera.frustum_planes();
                 let cam_pos = [
                     self.camera.position.x,
                     self.camera.position.y,
                     self.camera.position.z,
                 ];
+                self.chunk_buffers.rebuild_translucent(
+                    &self.ctx.device,
+                    &self.ctx.allocator,
+                    cam_pos,
+                );
+                let frustum = self.camera.frustum_planes();
                 self.chunk_buffers
                     .dispatch_cull(&self.ctx.device, cmd, frame, &frustum, cam_pos);
             }
@@ -1060,6 +1065,10 @@ impl Renderer {
 
                     self.item_entity_pipeline
                         .draw(&self.ctx.device, cmd, frame, item_entities);
+
+                    self.chunk_pipeline
+                        .bind_translucent(&self.ctx.device, cmd, frame);
+                    self.chunk_buffers.draw_translucent(&self.ctx.device, cmd);
 
                     if *show_chunk_borders {
                         self.chunk_border_pipeline
