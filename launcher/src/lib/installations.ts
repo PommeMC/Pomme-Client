@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Installation } from "./types.ts";
+import { Installation } from "../bindings/pomme_launcher/installations";
 
 export const useInstallations = () => {
   const [installations, setInstallations] = useState<Installation[]>([]);

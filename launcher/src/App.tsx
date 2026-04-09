@@ -1,15 +1,18 @@
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef } from "react";
+
 import { commands } from "./bindings";
+import { PatchNote } from "./bindings/pomme_launcher/commands";
+import { useAppStateContext } from "./lib/state";
+import { DownloadProgress } from "./lib/types";
+
 import Navbar from "./components/Navbar";
 import Titlebar from "./components/Titlebar";
-import AlertDialog from "./components/dialogs/AlertDialog.tsx";
-import { ConfirmDialog } from "./components/dialogs/ConfirmDialog.tsx";
-import { InstallationDialog } from "./components/dialogs/InstallationDialog.tsx";
-import { useAppStateContext } from "./lib/state";
-import { AuthAccount, DownloadProgress, GameVersion, PatchNote } from "./lib/types";
+import AlertDialog from "./components/dialogs/AlertDialog";
+import { ConfirmDialog } from "./components/dialogs/ConfirmDialog";
+import { InstallationDialog } from "./components/dialogs/InstallationDialog";
+
 import FriendsPage from "./pages/Friends";
 import Homepage from "./pages/Home";
 import InstallationsPage from "./pages/Installations";
@@ -50,18 +53,16 @@ function App() {
 
   const openPatchNote = useCallback(
     async (note: PatchNote) => {
-      try {
-        const body = await invoke<string>("get_patch_content", {
-          contentPath: note.content_path,
-        });
+      const res = await commands.getPatchContent(note.content_path);
+      if (res.ok) {
         setSelectedNote({
           title: note.title,
-          body,
+          body: res.value,
           image_url: note.image_url,
         });
         setPage("news");
-      } catch (e) {
-        console.error("Failed to fetch content:", e);
+      } else {
+        console.error("Failed to fetch content: ", res.error);
       }
     },
     [setPage, setSelectedNote],
@@ -69,27 +70,30 @@ function App() {
 
   const loadSkin = useCallback(
     (uuid: string) => {
-      invoke<string>("get_skin_url", { uuid })
-        .then(setSkinUrl)
-        .catch(() => setSkinUrl(null));
+      commands.getSkinUrl(uuid).then((res) => {
+        if (res.ok) setSkinUrl(res.value);
+        else setSkinUrl(null);
+      });
     },
     [setSkinUrl],
   );
 
   useEffect(() => {
-    invoke<AuthAccount[]>("get_all_accounts").then((accs) => {
+    commands.getAllAccounts().then((accs) => {
       if (accs.length > 0) {
         setAccounts(accs);
         setActiveIndex(0);
         loadSkin(accs[0].uuid);
       }
     });
-    invoke<PatchNote[]>("get_patch_notes", { count: 6 })
-      .then(setNews)
-      .catch((e) => console.error("Failed to fetch news:", e));
-    invoke<GameVersion[]>("get_versions", { showSnapshots: false })
-      .then(setVersions)
-      .catch((e) => console.error("Failed to fetch versions:", e));
+    commands.getPatchNotes(6).then((res) => {
+      if (res.ok) setNews(res.value);
+      else console.error("Failed to fetch news:", res.error);
+    });
+    commands.getVersions(false).then((res) => {
+      if (res.ok) setVersions(res.value);
+      else console.error("Failed to fetch versions:", res.error);
+    });
   }, [loadSkin, setAccounts, setActiveIndex, setNews, setVersions]);
 
   useEffect(() => {
@@ -109,8 +113,9 @@ function App() {
     setAccountDropdownOpen(false);
     setAuthLoading(true);
     setStatus("Signing in via Microsoft...");
-    try {
-      const acc = await invoke<AuthAccount>("add_account");
+    const res = await commands.addAccount();
+    if (res.ok) {
+      const acc = res.value;
       setAccounts((prev) => {
         const filtered = prev.filter((a) => a.uuid !== acc.uuid);
         return [...filtered, acc];
@@ -118,8 +123,8 @@ function App() {
       setActiveIndex(accounts.filter((a) => a.uuid !== acc.uuid).length);
       loadSkin(acc.uuid);
       setStatus(`Signed in as ${acc.username}`);
-    } catch (e) {
-      setStatus(`Auth failed: ${e}`);
+    } else {
+      setStatus(`Auth failed: ${res.error}`);
     }
     setAuthLoading(false);
   }, [
@@ -145,9 +150,7 @@ function App() {
 
   const removeAccount = useCallback(
     (uuid: string) => {
-      invoke("remove_account", { uuid }).catch((e) =>
-        console.error("Failed to remove account:", e),
-      );
+      commands.removeAccount(uuid).catch((e) => console.error("Failed to remove account:", e));
       setAccounts((prev) => prev.filter((a) => a.uuid !== uuid));
       setActiveIndex(0);
       setAccountDropdownOpen(false);
@@ -165,7 +168,11 @@ function App() {
         } else {
           setLaunchingStatus("installing");
         }
-        await invoke("ensure_assets", { version });
+        const res = await commands.ensureAssets(version);
+        if (!res.ok) {
+          setStatus(res.error);
+          return false;
+        }
         setDownloadedVersions((prev) => new Set([...prev, version]));
         return true;
       } catch (e) {
@@ -220,22 +227,24 @@ function App() {
     try {
       setLaunchingStatus("launching");
       setStatus("Launching Pomme...");
-      const result = await invoke<string>("launch_game", {
-        uuid: account?.uuid || null,
-        server: server || null,
-        debugEnabled: launcherSettings.launchWithConsole || null,
-        version: activeInstall.version,
-        install_id: activeInstall.id,
-      });
-      setStatus(result);
+      const res = await commands.launchGame(
+        activeInstall.version,
+        account?.uuid ?? null,
+        server ?? null,
+        launcherSettings.launchWithConsole ?? null,
+        null,
+      );
+      if (res.ok) {
+        setStatus(res.value);
+      } else {
+        setStatus(res.error);
+      }
     } catch (e) {
       setStatus(`${e}`);
     } finally {
       setDownloadProgress(null);
       setLaunchingStatus(null);
-      setTimeout(() => {
-        setStatus("");
-      }, 3000);
+      setTimeout(() => setStatus(""), 3000);
     }
   }, [
     setOpenedDialog,
@@ -266,7 +275,7 @@ function App() {
     commands.getDownloadedVersions().then((versions) => {
       setDownloadedVersions((prev) => new Set([...prev, ...versions]));
     });
-  }, [setDownloadedVersions, setStatus]);
+  }, [setDownloadedVersions]);
 
   return (
     <div className="app">
