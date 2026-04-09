@@ -1,7 +1,8 @@
 import { open as openNativeDialog } from "@tauri-apps/plugin-dialog";
 import { useState } from "react";
 import { HiChevronDown, HiFolder } from "react-icons/hi2";
-import { commands, Installation, InstallationError } from "../../bindings.ts";
+import { commands } from "../../bindings";
+import { Installation, InstallationError } from "../../bindings/pomme_launcher/installations.ts";
 import { isAbsolutePath, normalizeDirectoryName } from "../../lib/helpers.ts";
 import { useDropdown } from "../../lib/hooks.ts";
 import { useAppStateContext } from "../../lib/state.ts";
@@ -133,8 +134,8 @@ export function InstallationDialog({ ...dialogProps }: InstallationDialogProps) 
                     onChange={(e) => {
                       setShowSnapshots(e.target.checked);
                       commands.getVersions(e.target.checked).then((res) => {
-                        if (res.status === "ok") {
-                          setVersions(res.data);
+                        if (res.ok) {
+                          setVersions(res.value);
                         } else {
                           console.error("Failed to fetch versions: ", res.error);
                         }
@@ -257,14 +258,14 @@ export function InstallationDialog({ ...dialogProps }: InstallationDialogProps) 
                 ? commands.createInstallation(editedInstall)
                 : commands.duplicateInstallation(dialogProps.original_id, editedInstall));
 
-              if (installResult.status !== "ok") {
+              if (!installResult.ok) {
                 const mapped = mapInstallationError(installResult.error);
                 if (mapped.name) setNameError(mapped.name);
                 if (mapped.dir) setDirError(mapped.dir);
                 return;
               }
+              const install = installResult.value;
 
-              const install = installResult.data;
               setActiveInstall(install);
 
               setOpenedDialog(null);
@@ -272,7 +273,7 @@ export function InstallationDialog({ ...dialogProps }: InstallationDialogProps) 
               setDownloadProgress({ downloaded: 0, total: 1, status: "Starting install..." });
 
               const ensureAssetsResult = await commands.ensureAssets(install.version);
-              if (ensureAssetsResult.status === "ok") {
+              if (ensureAssetsResult.ok) {
                 setStatus(`${install.name} ready`);
               } else {
                 setStatus(`Install failed: ${ensureAssetsResult.error}`);
@@ -285,7 +286,7 @@ export function InstallationDialog({ ...dialogProps }: InstallationDialogProps) 
                 editingInstall.id,
                 editedInstall,
               );
-              if (editInstallResult.status !== "ok") {
+              if (!editInstallResult.ok) {
                 const mapped = mapInstallationError(editInstallResult.error);
                 if (mapped.name) setNameError(mapped.name);
                 if (mapped.dir) setDirError(mapped.dir);

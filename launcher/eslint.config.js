@@ -1,11 +1,12 @@
-import tsParser from "@typescript-eslint/parser";
 import tsPlugin from "@typescript-eslint/eslint-plugin";
-import reactHooks from "eslint-plugin-react-hooks";
+import tsParser from "@typescript-eslint/parser";
 import prettier from "eslint-config-prettier";
+import reactHooks from "eslint-plugin-react-hooks";
 
 export default [
   {
     files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/bindings/**"],
     languageOptions: {
       parser: tsParser,
       parserOptions: {

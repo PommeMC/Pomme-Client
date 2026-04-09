@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef } from "react";
-import { commands } from "./bindings.ts";
+import { commands } from "./bindings";
 import Navbar from "./components/Navbar";
 import Titlebar from "./components/Titlebar";
 import AlertDialog from "./components/dialogs/AlertDialog.tsx";
@@ -238,12 +238,12 @@ function App() {
       }, 3000);
     }
   }, [
+    setOpenedDialog,
     ensureAssets,
     activeInstall,
     setLaunchingStatus,
     setStatus,
     setDownloadProgress,
-    downloadedVersions,
     account?.uuid,
     server,
     launcherSettings.launchWithConsole,
@@ -253,9 +253,9 @@ function App() {
 
   useEffect(() => {
     commands.loadInstallations().then((res) => {
-      if (res.status === "ok") {
-        setInstallations(res.data);
-        setActiveInstall((prev) => prev ?? res.data[0]);
+      if (res.ok) {
+        setInstallations(res.value);
+        setActiveInstall((prev) => prev ?? res.value[0]);
       } else {
         setStatus("Failed to load installations: " + res.error);
       }

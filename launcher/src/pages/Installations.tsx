@@ -10,7 +10,7 @@ import {
   HiPlus,
   HiTrash,
 } from "react-icons/hi2";
-import { commands } from "../bindings.ts";
+import { commands } from "../bindings";
 import { formatRelativeDate } from "../lib/helpers.ts";
 import { useAppStateContext } from "../lib/state";
 
@@ -148,7 +148,7 @@ export default function InstallationsPage({ handleLaunch, ensureAssets }: Instal
                         onConfirm: async () => {
                           const index = installations.findIndex((i) => i.id === inst.id);
                           const res = await commands.deleteInstallation(inst.id);
-                          if (res.status === "ok") {
+                          if (res.ok) {
                             setActiveInstall((current) => {
                               if (current?.id !== inst.id) return current;
                               const newList = installations.filter((i) => i.id !== inst.id);
