@@ -196,7 +196,7 @@ function App() {
       return;
     }
 
-    const unlisten = await events.gameExitedEvent.listen((event) => {
+    await events.gameExitedEvent.once((event) => {
       const { code, signal, last_line } = event.payload;
       const SIGNAL_NAMES: Record<number, string> = {
         4: "SIGILL",
@@ -215,18 +215,18 @@ function App() {
           message: last_line ?? "The game exited unexpectedly.",
         },
       });
-      unlisten();
     });
 
     try {
       setLaunchingStatus("launching");
       setStatus("Launching Pomme...");
+      console.log(typeof server);
       const res = await commands.launchGame(
         activeInstall.version,
         account?.uuid ?? null,
-        server ?? null,
+        server || null,
         launcherSettings.launchWithConsole ?? null,
-        null,
+        activeInstall.directory,
       );
       if (res.ok) {
         setStatus(res.value);
