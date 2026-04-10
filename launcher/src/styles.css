@@ -1998,6 +1998,7 @@ body {
   letter-spacing: 0.3px;
   color: var(--text-dim);
   line-height: 1.6;
+  white-space: pre-line;
 }
 
 .dialog-field label {

@@ -13,6 +13,10 @@ mod storage;
 
 use std::collections::VecDeque;
 
+/// Maps all supported versions to their corresponding protocol version.
+const VERSION_PROTOCOL_MAP: [(&str, u64); 3] =
+    [("26.1", 754), ("26.1.1-rc-1", 0x40000130), ("26.1.1", 754)];
+
 #[derive(Default)]
 pub struct AppState {
     pub client_logs: Mutex<VecDeque<String>>,

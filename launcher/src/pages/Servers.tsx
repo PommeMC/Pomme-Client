@@ -21,7 +21,7 @@ import {
 } from "react-icons/hi2";
 import { useDropdown } from "../lib/hooks";
 import { useAppStateContext } from "../lib/state";
-import { Server } from "../lib/types";
+import { handleLaunchType, Server } from "../lib/types";
 
 const numFormatter = new Intl.NumberFormat();
 
@@ -84,7 +84,7 @@ function SortableServer({
   removeServer,
 }: {
   s: Server;
-  handleLaunch: (ip: string, version: string) => void;
+  handleLaunch: handleLaunchType;
   startEdit: (s: Server) => void;
   removeServer: (id: string) => void;
 }) {
@@ -169,11 +169,7 @@ function SortableServer({
   );
 }
 
-export default function ServersPage({
-  handleLaunch,
-}: {
-  handleLaunch: (ip: string, version: string) => Promise<void>;
-}) {
+export default function ServersPage({ handleLaunch }: { handleLaunch: handleLaunchType }) {
   const { servers, moveServer, removeServer, pingAll, setOpenedDialog } = useAppStateContext();
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));

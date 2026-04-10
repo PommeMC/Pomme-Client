@@ -102,3 +102,5 @@ export interface ServerStatus {
   motd: string;
   version: string;
 }
+
+export type handleLaunchType = (serverIp?: string, serverVersion?: string) => Promise<void>;

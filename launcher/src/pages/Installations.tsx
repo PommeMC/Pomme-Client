@@ -12,12 +12,12 @@ import {
 } from "react-icons/hi2";
 import { formatRelativeDate } from "../lib/helpers.ts";
 import { useAppStateContext } from "../lib/state";
-import type { InstallationError } from "../lib/types.ts";
+import type { handleLaunchType, InstallationError } from "../lib/types.ts";
 
 interface InstallationsPageProps {
   deleteInstallation: (install_id: string) => Promise<null | InstallationError>;
-  handleLaunch: () => Promise<void>;
-  ensureAssets: (version: string) => Promise<boolean>;
+  handleLaunch: handleLaunchType;
+  ensureAssets: (version: string) => Promise<Error | null>;
 }
 
 export default function InstallationsPage({

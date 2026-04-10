@@ -3,10 +3,10 @@ import { HiChevronDown, HiCube, HiPlay } from "react-icons/hi2";
 import SkinRunner from "../components/SkinRunner";
 import { useDropdown } from "../lib/hooks";
 import { useAppStateContext } from "../lib/state";
-import { PatchNote } from "../lib/types";
+import { handleLaunchType, PatchNote } from "../lib/types";
 
 interface HomepageProps {
-  handleLaunch: () => Promise<void>;
+  handleLaunch: handleLaunchType;
   openPatchNote: (item: PatchNote) => Promise<void>;
 }
 
@@ -45,7 +45,7 @@ export default function Homepage({ handleLaunch, openPatchNote }: HomepageProps)
                 ? "launching"
                 : ""
           }`}
-          onClick={handleLaunch}
+          onClick={() => handleLaunch()}
           disabled={launchingStatus !== null}
         >
           {launchingStatus === null && downloadedVersions.has(activeInstall?.version ?? "") ? (

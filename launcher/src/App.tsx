@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { listen, once } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef } from "react";
 import Navbar from "./components/Navbar";
@@ -13,6 +13,7 @@ import {
   AuthAccount,
   DownloadProgress,
   GameVersion,
+  handleLaunchType,
   Installation,
   InstallationError,
   PatchNote,
@@ -52,6 +53,7 @@ function App() {
     invokeEditInstallation,
     activeInstall,
     setActiveInstall,
+    installations,
     setInstallations,
     setDownloadedVersions,
   } = useAppStateContext();
@@ -167,7 +169,7 @@ function App() {
   );
 
   const ensureAssets = useCallback(
-    async (version: string) => {
+    async (version: string): Promise<Error | null> => {
       setStatus("Checking assets...");
       try {
         if (downloadedVersions.has(version)) {
@@ -175,12 +177,13 @@ function App() {
         } else {
           setLaunchingStatus("installing");
         }
+
         await invoke("ensure_assets", { version });
+
         setDownloadedVersions((prev) => new Set([...prev, version]));
-        return true;
+        return null;
       } catch (e) {
-        setStatus(`${e}`);
-        return false;
+        return e instanceof Error ? e : new Error(String(e));
       } finally {
         setStatus("");
         setDownloadProgress(null);
@@ -190,24 +193,48 @@ function App() {
     [downloadedVersions, setDownloadedVersions, setLaunchingStatus, setStatus, setDownloadProgress],
   );
 
-  const handleLaunch = useCallback(
+  const handleLaunch: handleLaunchType = useCallback(
     async (serverIp?: string, serverVersion?: string) => {
-      if (!activeInstall) {
+      let currentInstall = activeInstall;
+
+      if (serverVersion && serverIp) {
+        const candidate =
+          installations.find((i) => i.id === "latest-release" || i.id === "latest-snapshot") ??
+          null;
+
+        if (candidate) {
+          currentInstall = { ...candidate, version: serverVersion };
+        }
+      }
+
+      if (!currentInstall) {
         setStatus("No installation selected");
         setTimeout(() => setStatus(""), 3000);
         return;
       }
 
-      if (!(await ensureAssets(activeInstall.version))) {
+      const err = await ensureAssets(currentInstall.version);
+      if (err instanceof Error) {
+        setOpenedDialog({
+          name: "alert_dialog",
+          props: {
+            title: "Failed to download assets",
+            message: `Failed to download assets for ${currentInstall.version}:
+            ${err.message}`,
+          },
+        });
         return;
       }
 
-      const unlisten = await listen<{
+      await once<{
         code: number | null;
         signal: number | null;
-        last_line: string | null;
+        last_lines: string[] | null;
       }>("game_exited", (event) => {
-        const { code, signal, last_line } = event.payload;
+        const { code, signal, last_lines: last_lines } = event.payload;
+        if (code === 0) {
+          return;
+        }
         const SIGNAL_NAMES: Record<number, string> = {
           4: "SIGILL",
           6: "SIGABRT",
@@ -220,24 +247,36 @@ function App() {
           signal !== null
             ? `signal ${SIGNAL_NAMES[signal] ?? signal}`
             : `code ${code ?? "unknown"}`;
+        const message =
+          code === 1 && last_lines && last_lines.length > 0
+            ? last_lines.map((line, i) => `${i + 1}: ${line}`).join("\n")
+            : "The game exited unexpectedly.";
+
         setOpenedDialog({
           name: "alert_dialog",
           props: {
             title: `Game exited (${reason})`,
-            message: last_line ?? "The game exited unexpectedly.",
+            message,
           },
         });
-        unlisten();
+      });
+
+      console.log({
+        installId: currentInstall.id,
+        uuid: account?.uuid || null,
+        serverIp: serverIp || null,
+        overrideVersion: serverVersion || null,
+        debugEnabled: launcherSettings.launchWithConsole || null,
       });
 
       try {
         setLaunchingStatus("launching");
         setStatus("Launching Pomme...");
         const result = await invoke<string>("launch_game", {
-          installId: activeInstall.id,
+          installId: currentInstall.id,
           uuid: account?.uuid || null,
           serverIp: serverIp || null,
-          override_version: serverVersion || null,
+          overrideVersion: serverVersion || null,
           debugEnabled: launcherSettings.launchWithConsole || null,
         });
         setStatus(result);
@@ -252,12 +291,12 @@ function App() {
       }
     },
     [
+      installations,
       ensureAssets,
       activeInstall,
       setLaunchingStatus,
       setStatus,
       setDownloadProgress,
-      downloadedVersions,
       setOpenedDialog,
       account?.uuid,
       launcherSettings.launchWithConsole,
@@ -361,11 +400,7 @@ function App() {
 
           {page === "news" && <NewsPage openPatchNote={openPatchNote} />}
 
-          {page === "servers" && (
-            <ServersPage
-              handleLaunch={(ip: string, version: string) => handleLaunch(ip, version)}
-            />
-          )}
+          {page === "servers" && <ServersPage handleLaunch={handleLaunch} />}
 
           {page === "friends" && <FriendsPage />}
 
