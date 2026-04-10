@@ -6,7 +6,7 @@ import reactHooks from "eslint-plugin-react-hooks";
 export default [
   {
     files: ["src/**/*.{ts,tsx}"],
-    ignores: ["src/bindings/**"],
+    ignores: ["src/bindings/**/*"],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -23,7 +23,13 @@ export default [
       ...tsPlugin.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
       "react-hooks/preserve-manual-memoization": "off",
-      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+        },
+      ],
       "@typescript-eslint/no-explicit-any": "warn",
     },
   },

@@ -77,9 +77,7 @@ pub fn get_builder() -> tauri_specta::Builder {
 pub fn generate_bindings() {
     crate::get_builder()
         .export(
-            specta_typescript::Typescript::default()
-                .layout(specta_typescript::Layout::Files)
-                .header("// @ts-nocheck\n/* eslint-disable */"),
+            specta_typescript::Typescript::default().layout(specta_typescript::Layout::Files),
             "../src/bindings/",
         )
         .unwrap();
