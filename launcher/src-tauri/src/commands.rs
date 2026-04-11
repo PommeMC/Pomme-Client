@@ -430,7 +430,7 @@ pub async fn launch_game(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn _get_client_logs(state: State<'_, AppState>) -> Result<VecDeque<String>, ()> {
+pub async fn get_client_logs(state: State<'_, AppState>) -> Result<VecDeque<String>, ()> {
     let logs = state.client_logs.lock().await;
     Ok(logs.clone())
 }

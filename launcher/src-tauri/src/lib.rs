@@ -51,6 +51,7 @@ pub fn get_builder() -> tauri_specta::Builder {
             commands::get_patch_notes,
             commands::get_patch_content,
             commands::launch_game,
+            commands::get_client_logs,
             commands::load_launcher_settings,
             commands::set_launcher_language,
             commands::set_keep_launcher_open,
