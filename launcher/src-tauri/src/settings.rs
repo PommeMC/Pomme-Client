@@ -6,7 +6,7 @@ use tokio::sync::{RwLock, RwLockReadGuard};
 static LAUNCHER_SETTINGS: LazyLock<RwLock<LauncherSettings>> =
     LazyLock::new(|| RwLock::new(LauncherSettings::load()));
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct LauncherSettings {
     pub language: String,

@@ -5,7 +5,7 @@ use tokio::net::TcpStream;
 const TIMEOUT: Duration = Duration::from_secs(5);
 const PROTOCOL_VERSION: i32 = 769;
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, specta::Type)]
 pub struct SavedServer {
     pub name: String,
     pub address: String,
@@ -13,7 +13,7 @@ pub struct SavedServer {
     pub category: String,
 }
 
-#[derive(serde::Serialize, Clone)]
+#[derive(serde::Serialize, Clone, specta::Type)]
 pub struct ServerStatus {
     pub online: bool,
     pub players: i32,

@@ -1,0 +1,84 @@
+mod auth;
+mod commands;
+mod downloader;
+mod installations;
+mod ping;
+mod settings;
+pub mod storage;
+
+use std::collections::VecDeque;
+use tokio::sync::Mutex;
+
+#[derive(Default)]
+pub struct AppState {
+    pub client_logs: Mutex<VecDeque<String>>,
+    pub installations_lock: Mutex<()>,
+}
+
+const TYPED_ERROR_IMPL: &str = r#"export type Result<T, E> =
+  | { ok: true;  value: T }
+  | { ok: false; error: E };
+
+export const Result = {
+  ok<T>(value: T): Result<T, never> {
+    return { ok: true, value };
+  },
+  err<E>(error: E): Result<never, E> {
+    return { ok: false, error };
+  },
+} as const;
+
+
+export async function typedError<T, E>(promise: Promise<T>): Promise<Result<T, E>> {
+  try {
+    return Result.ok(await promise);
+  } catch (e) {
+    if (e instanceof Error) throw e;
+    return Result.err(e as E);
+  }
+}"#;
+
+pub fn get_builder() -> tauri_specta::Builder {
+    tauri_specta::Builder::new()
+        .commands(tauri_specta::collect_commands![
+            commands::get_all_accounts,
+            commands::add_account,
+            commands::remove_account,
+            commands::ensure_assets,
+            commands::get_versions,
+            commands::refresh_account,
+            commands::get_skin_url,
+            commands::get_patch_notes,
+            commands::get_patch_content,
+            commands::launch_game,
+            commands::get_client_logs,
+            commands::load_launcher_settings,
+            commands::set_launcher_language,
+            commands::set_keep_launcher_open,
+            commands::set_launch_with_console,
+            commands::ping_server,
+            commands::load_servers,
+            commands::save_servers,
+            commands::load_installations,
+            commands::create_installation,
+            commands::delete_installation,
+            commands::duplicate_installation,
+            commands::edit_installation,
+            commands::get_downloaded_versions,
+        ])
+        .events(tauri_specta::collect_events![
+            commands::ConsoleMessageEvent,
+            commands::GameExitedEvent,
+            downloader::DownloadProgressEvent,
+        ])
+        .typed_error_impl(TYPED_ERROR_IMPL)
+}
+
+pub fn generate_bindings() {
+    crate::get_builder()
+        .export(
+            specta_typescript::Typescript::default().layout(specta_typescript::Layout::Files),
+            "../src/bindings/",
+        )
+        .unwrap();
+}

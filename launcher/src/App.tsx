@@ -1,21 +1,16 @@
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef } from "react";
+
+import { commands, events } from "./bindings";
+import { PatchNote } from "./bindings/pomme_launcher/commands";
+import { useAppStateContext } from "./lib/state";
+
 import Navbar from "./components/Navbar";
 import Titlebar from "./components/Titlebar";
-import AlertDialog from "./components/dialogs/AlertDialog.tsx";
-import { ConfirmDialog } from "./components/dialogs/ConfirmDialog.tsx";
-import { InstallationDialog } from "./components/dialogs/InstallationDialog.tsx";
-import { useAppStateContext } from "./lib/state";
-import {
-  AuthAccount,
-  DownloadProgress,
-  GameVersion,
-  Installation,
-  InstallationError,
-  PatchNote,
-} from "./lib/types";
+import AlertDialog from "./components/dialogs/AlertDialog";
+import { ConfirmDialog } from "./components/dialogs/ConfirmDialog";
+import { InstallationDialog } from "./components/dialogs/InstallationDialog";
+
 import FriendsPage from "./pages/Friends";
 import Homepage from "./pages/Home";
 import InstallationsPage from "./pages/Installations";
@@ -46,10 +41,6 @@ function App() {
     openedDialog,
     setOpenedDialog,
     launcherSettings,
-    invokeCreateInstallation,
-    invokeDeleteInstallation,
-    invokeDuplicateInstallation,
-    invokeEditInstallation,
     activeInstall,
     setActiveInstall,
     setInstallations,
@@ -60,18 +51,16 @@ function App() {
 
   const openPatchNote = useCallback(
     async (note: PatchNote) => {
-      try {
-        const body = await invoke<string>("get_patch_content", {
-          contentPath: note.content_path,
-        });
+      const res = await commands.getPatchContent(note.content_path);
+      if (res.ok) {
         setSelectedNote({
           title: note.title,
-          body,
+          body: res.value,
           image_url: note.image_url,
         });
         setPage("news");
-      } catch (e) {
-        console.error("Failed to fetch content:", e);
+      } else {
+        console.error("Failed to fetch content: ", res.error);
       }
     },
     [setPage, setSelectedNote],
@@ -79,27 +68,30 @@ function App() {
 
   const loadSkin = useCallback(
     (uuid: string) => {
-      invoke<string>("get_skin_url", { uuid })
-        .then(setSkinUrl)
-        .catch(() => setSkinUrl(null));
+      commands.getSkinUrl(uuid).then((res) => {
+        if (res.ok) setSkinUrl(res.value);
+        else setSkinUrl(null);
+      });
     },
     [setSkinUrl],
   );
 
   useEffect(() => {
-    invoke<AuthAccount[]>("get_all_accounts").then((accs) => {
+    commands.getAllAccounts().then((accs) => {
       if (accs.length > 0) {
         setAccounts(accs);
         setActiveIndex(0);
         loadSkin(accs[0].uuid);
       }
     });
-    invoke<PatchNote[]>("get_patch_notes", { count: 6 })
-      .then(setNews)
-      .catch((e) => console.error("Failed to fetch news:", e));
-    invoke<GameVersion[]>("get_versions", { showSnapshots: false })
-      .then(setVersions)
-      .catch((e) => console.error("Failed to fetch versions:", e));
+    commands.getPatchNotes(6).then((res) => {
+      if (res.ok) setNews(res.value);
+      else console.error("Failed to fetch news:", res.error);
+    });
+    commands.getVersions(false).then((res) => {
+      if (res.ok) setVersions(res.value);
+      else console.error("Failed to fetch versions:", res.error);
+    });
   }, [loadSkin, setAccounts, setActiveIndex, setNews, setVersions]);
 
   useEffect(() => {
@@ -107,7 +99,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const unlisten = listen<DownloadProgress>("download-progress", (event) => {
+    const unlisten = events.downloadProgressEvent.listen((event) => {
       setDownloadProgress(event.payload);
     });
     return () => {
@@ -119,8 +111,9 @@ function App() {
     setAccountDropdownOpen(false);
     setAuthLoading(true);
     setStatus("Signing in via Microsoft...");
-    try {
-      const acc = await invoke<AuthAccount>("add_account");
+    const res = await commands.addAccount();
+    if (res.ok) {
+      const acc = res.value;
       setAccounts((prev) => {
         const filtered = prev.filter((a) => a.uuid !== acc.uuid);
         return [...filtered, acc];
@@ -128,8 +121,8 @@ function App() {
       setActiveIndex(accounts.filter((a) => a.uuid !== acc.uuid).length);
       loadSkin(acc.uuid);
       setStatus(`Signed in as ${acc.username}`);
-    } catch (e) {
-      setStatus(`Auth failed: ${e}`);
+    } else {
+      setStatus(`Auth failed: ${res.error}`);
     }
     setAuthLoading(false);
   }, [
@@ -155,9 +148,7 @@ function App() {
 
   const removeAccount = useCallback(
     (uuid: string) => {
-      invoke("remove_account", { uuid }).catch((e) =>
-        console.error("Failed to remove account:", e),
-      );
+      commands.removeAccount(uuid).catch((e) => console.error("Failed to remove account:", e));
       setAccounts((prev) => prev.filter((a) => a.uuid !== uuid));
       setActiveIndex(0);
       setAccountDropdownOpen(false);
@@ -175,7 +166,11 @@ function App() {
         } else {
           setLaunchingStatus("installing");
         }
-        await invoke("ensure_assets", { version });
+        const res = await commands.ensureAssets(version);
+        if (!res.ok) {
+          setStatus(res.error);
+          return false;
+        }
         setDownloadedVersions((prev) => new Set([...prev, version]));
         return true;
       } catch (e) {
@@ -201,11 +196,7 @@ function App() {
       return;
     }
 
-    const unlisten = await listen<{
-      code: number | null;
-      signal: number | null;
-      last_line: string | null;
-    }>("game_exited", (event) => {
+    await events.gameExitedEvent.once((event) => {
       const { code, signal, last_line } = event.payload;
       const SIGNAL_NAMES: Record<number, string> = {
         4: "SIGILL",
@@ -224,36 +215,38 @@ function App() {
           message: last_line ?? "The game exited unexpectedly.",
         },
       });
-      unlisten();
     });
 
     try {
       setLaunchingStatus("launching");
       setStatus("Launching Pomme...");
-      const result = await invoke<string>("launch_game", {
-        uuid: account?.uuid || null,
-        server: server || null,
-        debugEnabled: launcherSettings.launchWithConsole || null,
-        version: activeInstall.version,
-        install_id: activeInstall.id,
-      });
-      setStatus(result);
+      console.log(typeof server);
+      const res = await commands.launchGame(
+        activeInstall.version,
+        account?.uuid ?? null,
+        server || null,
+        launcherSettings.launchWithConsole ?? null,
+        activeInstall.directory,
+      );
+      if (res.ok) {
+        setStatus(res.value);
+      } else {
+        setStatus(res.error);
+      }
     } catch (e) {
       setStatus(`${e}`);
     } finally {
       setDownloadProgress(null);
       setLaunchingStatus(null);
-      setTimeout(() => {
-        setStatus("");
-      }, 3000);
+      setTimeout(() => setStatus(""), 3000);
     }
   }, [
+    setOpenedDialog,
     ensureAssets,
     activeInstall,
     setLaunchingStatus,
     setStatus,
     setDownloadProgress,
-    downloadedVersions,
     account?.uuid,
     server,
     launcherSettings.launchWithConsole,
@@ -261,74 +254,22 @@ function App() {
 
   const dialogDragStartedInside = useRef(false);
 
-  const createInstallation = async (
-    payload: Installation,
-  ): Promise<[Installation, null] | [null, InstallationError]> => {
-    try {
-      const inst = await invokeCreateInstallation(payload);
-      setInstallations((prev) => [...prev, inst]);
-      return [inst, null];
-    } catch (e) {
-      console.error("Failed to create installation", e);
-      return [null, e as InstallationError];
-    }
-  };
-
-  const deleteInstallation = async (install_id: string): Promise<null | InstallationError> => {
-    try {
-      await invokeDeleteInstallation(install_id);
-      setInstallations((prev) => prev.filter((inst) => inst.id !== install_id));
-      return null;
-    } catch (e) {
-      console.error("Failed to delete installation", e);
-      return e as InstallationError;
-    }
-  };
-
-  const duplicateInstallation = async (
-    install_id: string,
-    new_payload: Installation,
-  ): Promise<[Installation, null] | [null, InstallationError]> => {
-    try {
-      const inst = await invokeDuplicateInstallation(install_id, new_payload);
-      setInstallations((prev) => [...prev, inst]);
-      return [inst, null];
-    } catch (e) {
-      console.error("Failed to duplicate installation", e);
-      return [null, e as InstallationError];
-    }
-  };
-
-  const editInstallation = async (
-    install_id: string,
-    new_payload: Installation,
-  ): Promise<null | InstallationError> => {
-    try {
-      const inst = await invokeEditInstallation(install_id, new_payload);
-      setInstallations((prev) => prev.map((i) => (i.id === install_id ? inst : i)));
-      return null;
-    } catch (e) {
-      console.error("Failed to edit installation", e);
-      return e as InstallationError;
-    }
-  };
-
   useEffect(() => {
-    invoke<Installation[]>("load_installations")
-      .then((installs) => {
-        setInstallations(installs);
-        setActiveInstall((prev) => prev ?? installs[0]);
-      })
-      .catch((e) => setStatus("Failed to load installations: " + e));
+    commands.loadInstallations().then((res) => {
+      if (res.ok) {
+        setInstallations(res.value);
+        setActiveInstall((prev) => prev ?? res.value[0]);
+      } else {
+        setStatus("Failed to load installations: " + res.error);
+      }
+    });
   }, [setInstallations, setActiveInstall, setStatus]);
 
   useEffect(() => {
-    invoke<string[]>("get_downloaded_versions")
-      .then((versions) => {
-        setDownloadedVersions((prev) => new Set([...prev, ...versions]));
-      })
-      .catch((e) => console.error("Failed to load downloaded versions: " + e));
-  }, [setDownloadedVersions, setStatus]);
+    commands.getDownloadedVersions().then((versions) => {
+      setDownloadedVersions((prev) => new Set([...prev, ...versions]));
+    });
+  }, [setDownloadedVersions]);
 
   return (
     <div className="app">
@@ -347,11 +288,7 @@ function App() {
           )}
 
           {page === "installations" && (
-            <InstallationsPage
-              deleteInstallation={deleteInstallation}
-              handleLaunch={handleLaunch}
-              ensureAssets={ensureAssets}
-            />
+            <InstallationsPage handleLaunch={handleLaunch} ensureAssets={ensureAssets} />
           )}
 
           {page === "news" && <NewsPage openPatchNote={openPatchNote} />}
@@ -378,14 +315,7 @@ function App() {
             }
           }}
         >
-          {openedDialog.name === "installation" && (
-            <InstallationDialog
-              {...openedDialog.props}
-              createInstallation={createInstallation}
-              duplicateInstallation={duplicateInstallation}
-              editInstallation={editInstallation}
-            />
-          )}
+          {openedDialog.name === "installation" && <InstallationDialog {...openedDialog.props} />}
           {openedDialog.name === "confirm_dialog" && <ConfirmDialog {...openedDialog.props} />}
           {openedDialog.name === "alert_dialog" && <AlertDialog {...openedDialog.props} />}
         </div>

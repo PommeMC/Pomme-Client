@@ -2,7 +2,8 @@ use crate::storage;
 
 use serde::Deserialize;
 use std::path::Path;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
+use tauri_specta::Event;
 
 const VERSION_MANIFEST_URL: &str =
     "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
@@ -54,8 +55,8 @@ struct AssetObject {
     size: u64,
 }
 
-#[derive(serde::Serialize, Clone)]
-pub struct DownloadProgress {
+#[derive(serde::Serialize, Clone, specta::Type, tauri_specta::Event)]
+pub struct DownloadProgressEvent {
     pub downloaded: u32,
     pub total: u32,
     pub status: String,
@@ -320,14 +321,12 @@ fn extract_jar(app: &AppHandle, jar_path: &Path, output_dir: &Path) -> Result<()
 }
 
 fn emit_progress(app: &AppHandle, downloaded: u32, total: u32, status: &str) {
-    let _ = app.emit(
-        "download-progress",
-        DownloadProgress {
-            downloaded,
-            total,
-            status: status.to_string(),
-        },
-    );
+    let _ = DownloadProgressEvent {
+        downloaded,
+        total,
+        status: status.to_string(),
+    }
+    .emit(app);
 }
 
 pub async fn get_downloaded_versions() -> Vec<String> {

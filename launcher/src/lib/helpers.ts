@@ -52,3 +52,11 @@ export function normalizeDirectoryName(name: string): string {
 export function isAbsolutePath(path: string): boolean {
   return /^[A-Za-z]:[\\\/]/.test(path) || path.startsWith("/");
 }
+
+export function assertNever(x: never): never | void {
+  if (import.meta.env.DEV) {
+    throw new Error(`Unhandled case: ${x}`);
+  } else {
+    console.error(`Unhandled case:`, x);
+  }
+}

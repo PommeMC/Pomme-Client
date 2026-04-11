@@ -5,7 +5,7 @@ const CLIENT_ID: &str = "b2dd2c0f-8a09-4549-9d76-ab43b8572695";
 const REDIRECT_URI: &str = "http://localhost:25585";
 const SCOPE: &str = "XboxLive.signin offline_access";
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, specta::Type)]
 pub struct AuthAccount {
     pub username: String,
     pub uuid: String,

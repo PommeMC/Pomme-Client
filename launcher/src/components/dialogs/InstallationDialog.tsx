@@ -1,20 +1,16 @@
-import { invoke } from "@tauri-apps/api/core";
 import { open as openNativeDialog } from "@tauri-apps/plugin-dialog";
 import { useState } from "react";
 import { HiChevronDown, HiFolder } from "react-icons/hi2";
+import { commands } from "../../bindings";
+import { Installation, InstallationError } from "../../bindings/pomme_launcher/installations.ts";
 import { isAbsolutePath, normalizeDirectoryName } from "../../lib/helpers.ts";
 import { useDropdown } from "../../lib/hooks.ts";
 import { useAppStateContext } from "../../lib/state.ts";
-import { GameVersion, Installation, InstallationError } from "../../lib/types.ts";
 
 export type InstallationDialogProps =
   | { type: "new" }
   | { type: "edit"; installation: Installation }
   | { type: "dupl"; installation: Installation; original_id: string };
-
-function assertNever(x: never): never {
-  throw new Error("Unhandled error: " + JSON.stringify(x));
-}
 
 function mapInstallationError(error: InstallationError): { name?: string; dir?: string } {
   switch (error.kind) {
@@ -38,31 +34,10 @@ function mapInstallationError(error: InstallationError): { name?: string; dir?: 
       return { dir: `JSON error: ${error.detail}` };
     case "Other":
       return { dir: `Unexpected error: ${error.detail}` };
-    default:
-      assertNever(error);
   }
 }
 
-export function InstallationDialog({
-  createInstallation,
-  duplicateInstallation,
-  editInstallation,
-  ...dialogProps
-}: InstallationDialogProps & {
-  createInstallation: (
-    payload: Installation,
-  ) => Promise<[Installation, null] | [null, InstallationError]>;
-} & {
-  duplicateInstallation: (
-    original_id: string,
-    new_payload: Installation,
-  ) => Promise<[Installation, null] | [null, InstallationError]>;
-} & {
-  editInstallation: (
-    install_id: string,
-    new_payload: Installation,
-  ) => Promise<null | InstallationError>;
-}) {
+export function InstallationDialog({ ...dialogProps }: InstallationDialogProps) {
   const {
     versions,
     setActiveInstall,
@@ -158,9 +133,13 @@ export function InstallationDialog({
                     checked={showSnapshots}
                     onChange={(e) => {
                       setShowSnapshots(e.target.checked);
-                      invoke<GameVersion[]>("get_versions", {
-                        showSnapshots: e.target.checked,
-                      }).then(setVersions);
+                      commands.getVersions(e.target.checked).then((res) => {
+                        if (res.ok) {
+                          setVersions(res.value);
+                        } else {
+                          console.error("Failed to fetch versions: ", res.error);
+                        }
+                      });
                     }}
                   />
                   <span>Show snapshots</span>
@@ -275,16 +254,17 @@ export function InstallationDialog({
             }
 
             if (dialogType !== "edit") {
-              const [install, err] = await (dialogType === "new"
-                ? createInstallation(editedInstall)
-                : duplicateInstallation(dialogProps.original_id, editedInstall));
+              const installResult = await (dialogType === "new"
+                ? commands.createInstallation(editedInstall)
+                : commands.duplicateInstallation(dialogProps.original_id, editedInstall));
 
-              if (!install) {
-                const res = mapInstallationError(err);
-                if (res.name) setNameError(res.name);
-                if (res.dir) setDirError(res.dir);
+              if (!installResult.ok) {
+                const mapped = mapInstallationError(installResult.error);
+                if (mapped.name) setNameError(mapped.name);
+                if (mapped.dir) setDirError(mapped.dir);
                 return;
               }
+              const install = installResult.value;
 
               setActiveInstall(install);
 
@@ -292,21 +272,24 @@ export function InstallationDialog({
               setPage("home");
               setDownloadProgress({ downloaded: 0, total: 1, status: "Starting install..." });
 
-              try {
-                await invoke("ensure_assets", { version: install.version });
+              const ensureAssetsResult = await commands.ensureAssets(install.version);
+              if (ensureAssetsResult.ok) {
                 setStatus(`${install.name} ready`);
-              } catch (e) {
-                setStatus(`Install failed: ${e}`);
+              } else {
+                setStatus(`Install failed: ${ensureAssetsResult.error}`);
               }
 
               setDownloadProgress(null);
               setTimeout(() => setStatus(""), 3000);
             } else {
-              const err = await editInstallation(editingInstall.id, editedInstall);
-              if (err) {
-                const res = mapInstallationError(err);
-                if (res.name) setNameError(res.name);
-                if (res.dir) setDirError(res.dir);
+              const editInstallResult = await commands.editInstallation(
+                editingInstall.id,
+                editedInstall,
+              );
+              if (!editInstallResult.ok) {
+                const mapped = mapInstallationError(editInstallResult.error);
+                if (mapped.name) setNameError(mapped.name);
+                if (mapped.dir) setDirError(mapped.dir);
                 return;
               }
               setActiveInstall(editedInstall);
