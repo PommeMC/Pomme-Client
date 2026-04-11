@@ -31,7 +31,7 @@ export default function NewsPage({
         </div>
       ) : (
         <>
-          <h2 className="news-page-heading">NEWS & UPDATES</h2>
+          <h2 className="page-heading">NEWS & UPDATES</h2>
           <div className="news-grid-full">
             {news.map((item) => (
               <div

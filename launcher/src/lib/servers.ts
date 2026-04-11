@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useState } from "react";
 import { Server, ServerStatus } from "./types";
 
 const PING_INTERVAL_MS = 30_000;

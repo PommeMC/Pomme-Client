@@ -12,12 +12,12 @@ import {
 } from "react-icons/hi2";
 import { formatRelativeDate } from "../lib/helpers.ts";
 import { useAppStateContext } from "../lib/state";
-import type { InstallationError } from "../lib/types.ts";
+import type { handleLaunchType, InstallationError } from "../lib/types.ts";
 
 interface InstallationsPageProps {
   deleteInstallation: (install_id: string) => Promise<null | InstallationError>;
-  handleLaunch: () => Promise<void>;
-  ensureAssets: (version: string) => Promise<boolean>;
+  handleLaunch: handleLaunchType;
+  ensureAssets: (version: string) => Promise<Error | null>;
 }
 
 export default function InstallationsPage({
@@ -46,11 +46,11 @@ export default function InstallationsPage({
   return (
     <div className="page installs-page">
       <div className="installs-header">
-        <h2 className="installs-heading">INSTALLATIONS</h2>
+        <h2 className="page-heading">INSTALLATIONS</h2>
         <button
           className="installs-new-btn"
           onClick={() => {
-            setOpenedDialog({ name: "installation", props: { type: "new" } });
+            setOpenedDialog({ name: "installation_dialog", props: { type: "new" } });
           }}
         >
           <HiPlus /> New Installation
@@ -112,7 +112,7 @@ export default function InstallationsPage({
                 className="install-action-btn"
                 onClick={() => {
                   setOpenedDialog({
-                    name: "installation",
+                    name: "installation_dialog",
                     props: { type: "edit", installation: { ...inst } },
                   });
                 }}
@@ -133,7 +133,7 @@ export default function InstallationsPage({
                     is_latest: false,
                   };
                   setOpenedDialog({
-                    name: "installation",
+                    name: "installation_dialog",
                     props: { type: "dupl", installation: dup, original_id: inst.id },
                   });
                 }}
