@@ -128,7 +128,8 @@ async fn ping_inner(address: &str) -> Result<ServerStatus, Box<dyn std::error::E
         .get("version")
         .and_then(|v| {
             v.get("protocol")
-                .and_then(|p| p.as_u64())
+                .and_then(|p| p.as_i64())
+                .and_then(|p| i32::try_from(p).ok())
                 .and_then(|p| {
                     crate::VERSION_PROTOCOL_MAP
                         .iter()

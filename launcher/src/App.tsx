@@ -261,14 +261,6 @@ function App() {
         });
       });
 
-      console.log({
-        installId: currentInstall.id,
-        uuid: account?.uuid || null,
-        serverIp: serverIp || null,
-        overrideVersion: serverVersion || null,
-        debugEnabled: launcherSettings.launchWithConsole || null,
-      });
-
       try {
         setLaunchingStatus("launching");
         setStatus("Launching Pomme...");

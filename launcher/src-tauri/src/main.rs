@@ -13,9 +13,11 @@ mod storage;
 
 use std::collections::VecDeque;
 
-/// Maps all supported versions to their corresponding protocol version.
-const VERSION_PROTOCOL_MAP: [(&str, u64); 3] =
-    [("26.1", 754), ("26.1.1-rc-1", 0x40000130), ("26.1.1", 754)];
+/// Maps all supported versions to their protocol version.
+/// Snapshots encode as `(1 << 30) | base_protocol`.
+/// KEEP IN SYNC WITH src/main.rs
+const VERSION_PROTOCOL_MAP: [(&str, i32); 3] =
+    [("26.1", 775), ("26.1.1-rc-1", 0x40000130), ("26.1.1", 775)];
 
 #[derive(Default)]
 pub struct AppState {
