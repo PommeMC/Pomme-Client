@@ -292,7 +292,7 @@ pub async fn launch_game(
 
     let install = installations::registry::find_by_id(&installations::Id::from(install_id))
         .map_err(|e| e.to_string())?;
-    let version = override_version.unwrap_or(install.version.into());
+    let version = override_version.unwrap_or_else(|| install.version.into());
     let install_path: String = install.directory.into();
 
     let mut cmd = tokio::process::Command::new(&exe);
@@ -387,8 +387,8 @@ pub async fn launch_game(
     tokio::spawn(async move {
         const MAX_LINES: usize = 50;
 
-        let mut stderr_lines: Vec<String> = Vec::new();
-        let mut tracing_errors: Vec<String> = Vec::new();
+        let mut stderr_lines: VecDeque<String> = VecDeque::new();
+        let mut tracing_errors: VecDeque<String> = VecDeque::new();
 
         while let Some((is_stderr, line)) = rx.recv().await {
             let _ = app_emitter.emit(
@@ -406,20 +406,22 @@ pub async fn launch_game(
                 logs.pop_front();
             }
 
-            if is_stderr {
-                if stderr_lines.len() >= MAX_LINES {
-                    stderr_lines.remove(0);
-                }
-                stderr_lines.push(line.clone());
+            let target = if is_stderr {
+                Some(&mut stderr_lines)
             } else if line.contains(" ERROR ") {
-                if tracing_errors.len() >= MAX_LINES {
-                    tracing_errors.remove(0);
+                Some(&mut tracing_errors)
+            } else {
+                None
+            };
+            if let Some(buf) = target {
+                if buf.len() >= MAX_LINES {
+                    buf.pop_front();
                 }
-                tracing_errors.push(line.clone());
+                buf.push_back(line.clone());
             }
         }
 
-        let mut combined = stderr_lines;
+        let mut combined: Vec<String> = stderr_lines.into();
         combined.extend(tracing_errors);
 
         let result = if combined.is_empty() {
@@ -456,8 +458,6 @@ pub async fn launch_game(
                 }),
             );
         }
-
-        println!("client status was: {}", status);
     });
 
     Ok(format!("Launched as {username}"))

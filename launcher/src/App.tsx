@@ -219,8 +219,7 @@ function App() {
           name: "alert_dialog",
           props: {
             title: "Failed to download assets",
-            message: `Failed to download assets for ${currentInstall.version}:
-            ${err.message}`,
+            message: `Failed to download assets for ${currentInstall.version}:\n${err.message}`,
           },
         });
         return;
@@ -231,7 +230,7 @@ function App() {
         signal: number | null;
         last_lines: string[] | null;
       }>("game_exited", (event) => {
-        const { code, signal, last_lines: last_lines } = event.payload;
+        const { code, signal, last_lines } = event.payload;
         if (code === 0) {
           return;
         }

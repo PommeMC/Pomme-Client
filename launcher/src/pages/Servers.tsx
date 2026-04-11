@@ -92,8 +92,7 @@ function SortableServer({
     id: s.id,
   });
   const menuBtnRef = useRef<HTMLButtonElement>(null);
-  const wasOpenRef = useRef(false);
-  const { ref: menuRef, isOpen: menuOpen, open: openMenu, close: closeMenu } = useDropdown();
+  const { ref: menuRef, isOpen: menuOpen, toggle: toggleMenu, close: closeMenu } = useDropdown();
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -141,17 +140,10 @@ function SortableServer({
         <button
           ref={menuBtnRef}
           className={`server-menu-btn ${menuOpen ? "active" : ""}`}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            wasOpenRef.current = menuOpen;
-          }}
-          onClick={() => {
-            if (wasOpenRef.current) {
-              closeMenu();
-            } else {
-              openMenu();
-            }
-          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onMouseUp={(e) => e.stopPropagation()}
+          onClick={toggleMenu}
         >
           <HiEllipsisVertical />
         </button>
