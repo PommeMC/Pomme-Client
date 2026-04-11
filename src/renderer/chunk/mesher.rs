@@ -6,6 +6,7 @@ use azalea_core::position::ChunkPos;
 
 use super::greedy;
 use crate::renderer::chunk::atlas::{AtlasRegion, AtlasUVMap};
+use crate::util::rng::JavaRng;
 use crate::world::block::model::{BakedModel, Direction};
 use crate::world::block::registry::{BlockRegistry, FaceTextures, Tint};
 use crate::world::chunk::{self, ChunkStore};
@@ -291,42 +292,6 @@ fn corner_noise(gi: usize, x: f64, y: f64, z: f64, falloff: f64) -> f64 {
         let t2 = t * t;
         let g = &GRADIENT[gi];
         t2 * t2 * (g[0] as f64 * x + g[1] as f64 * y + g[2] as f64 * z)
-    }
-}
-
-struct JavaRng {
-    seed: i64,
-}
-
-impl JavaRng {
-    fn new(seed: i64) -> Self {
-        Self {
-            seed: (seed ^ 0x5DEECE66D) & ((1i64 << 48) - 1),
-        }
-    }
-
-    fn next(&mut self, bits: u32) -> i32 {
-        self.seed = (self.seed.wrapping_mul(0x5DEECE66D).wrapping_add(0xB)) & ((1i64 << 48) - 1);
-        (self.seed >> (48 - bits)) as i32
-    }
-
-    fn next_int(&mut self, bound: i32) -> i32 {
-        if bound & (bound - 1) == 0 {
-            return ((bound as i64 * self.next(31) as i64) >> 31) as i32;
-        }
-        loop {
-            let bits = self.next(31);
-            let val = bits % bound;
-            if bits - val + (bound - 1) >= 0 {
-                return val;
-            }
-        }
-    }
-
-    fn next_double(&mut self) -> f64 {
-        let hi = self.next(26) as i64;
-        let lo = self.next(27) as i64;
-        ((hi << 27) + lo) as f64 / ((1i64 << 53) as f64)
     }
 }
 

@@ -339,6 +339,16 @@ pub fn handle_game_packet(
             tracing::info!("Server popping resource pack {:?}", p.id);
             let _ = event_tx.try_send(NetworkEvent::ResourcePackPop { id: p.id });
         }
+        ClientboundGamePacket::SoundEntity(sound) => {
+            let _ = event_tx.try_send(NetworkEvent::PlayEntitySound {
+                sound: sound.clone(),
+            });
+        }
+        ClientboundGamePacket::Sound(sound) => {
+            let _ = event_tx.try_send(NetworkEvent::PlaySound {
+                sound: sound.clone(),
+            });
+        }
         ClientboundGamePacket::PlayerInfoUpdate(p) => {
             use crate::player::tab_list::{PlayerInfoActions, PlayerInfoEntry};
             let actions = PlayerInfoActions {

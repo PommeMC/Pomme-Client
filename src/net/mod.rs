@@ -8,6 +8,7 @@ use azalea_block::BlockState;
 use azalea_core::heightmap_kind::HeightmapKind;
 use azalea_core::position::{BlockPos, ChunkPos};
 use azalea_inventory::ItemStack;
+use azalea_protocol::packets::game::{ClientboundSound, ClientboundSoundEntity};
 use azalea_registry::builtin::EntityKind;
 
 pub enum NetworkEvent {
@@ -162,6 +163,12 @@ pub enum NetworkEvent {
     },
     Disconnected {
         reason: String,
+    },
+    PlayEntitySound {
+        sound: ClientboundSoundEntity,
+    },
+    PlaySound {
+        sound: ClientboundSound,
     },
     PlayerInfoUpdate {
         actions: crate::player::tab_list::PlayerInfoActions,

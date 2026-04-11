@@ -22,6 +22,8 @@ use crate::renderer::Renderer;
 use crate::renderer::chunk::mesher::MeshDispatcher;
 use crate::renderer::pipelines::entity_renderer::EntityRenderInfo;
 use crate::renderer::pipelines::menu_overlay::MenuElement;
+use crate::sound::SoundEngine;
+use crate::sound::sound_instance::SoundInstance;
 use crate::ui::chat::ChatState;
 use crate::ui::common::{self, WHITE};
 use crate::ui::death::{self, DeathAction};
@@ -146,6 +148,7 @@ struct App {
     pending_pack_download: Option<std::thread::JoinHandle<PackDownloadResult>>,
     benchmark: Option<crate::benchmark::Benchmark>,
     benchmark_result: Option<crate::benchmark::BenchmarkResult>,
+    audio_handle: SoundEngine,
     last_player_chunk: azalea_core::position::ChunkPos,
     meshed_lod: std::collections::HashMap<azalea_core::position::ChunkPos, u32>,
 }
@@ -207,6 +210,10 @@ impl App {
         };
 
         let resource_packs = crate::resource_pack::ResourcePackManager::new(&data_dirs.game_dir);
+        let asset_index =
+            AssetIndex::load(&data_dirs.indexes_dir, &data_dirs.objects_dir, &version)
+                .expect("Failed to get asset index.");
+
         Self {
             presence,
             display_mode: DisplayMode::Windowed,
@@ -220,7 +227,7 @@ impl App {
             net_task,
             chunk_store: ChunkStore::new(DEFAULT_RENDER_DISTANCE),
             entity_store: EntityStore::new(),
-            asset_index: AssetIndex::load(&data_dirs.indexes_dir, &data_dirs.objects_dir, &version),
+            asset_index: Some(asset_index.clone()),
             position_set: false,
             state,
             menu: MainMenu::new(&data_dirs.game_dir, Arc::clone(&tokio_rt)),
@@ -270,6 +277,7 @@ impl App {
             pending_pack_download: None,
             benchmark: None,
             benchmark_result: None,
+            audio_handle: SoundEngine::new(asset_index),
             last_player_chunk: azalea_core::position::ChunkPos::new(0, 0),
             meshed_lod: std::collections::HashMap::new(),
         }
@@ -766,6 +774,8 @@ impl App {
                 NetworkEvent::TabListHeaderFooter { header, footer } => {
                     self.tab_list.set_header_footer(header, footer);
                 }
+                NetworkEvent::PlaySound { sound } => todo!(),
+                NetworkEvent::PlayEntitySound { sound } => todo!(),
             }
         }
 
