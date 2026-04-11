@@ -4,6 +4,103 @@ import { useDropdown } from "../../lib/hooks.ts";
 import { useAppStateContext } from "../../lib/state.ts";
 import { Server } from "../../lib/types.ts";
 
+const UNCATEGORIZED = "Uncategorized";
+
+type ServerCategoryInputProps = {
+  category: string;
+  setCategory: (category: string) => void;
+  existingCategories: string[];
+  customCategory: boolean;
+  setCustomCategory: (custom: boolean) => void;
+};
+
+function ServerCategoryInput({
+  category,
+  setCategory,
+  existingCategories,
+  customCategory,
+  setCustomCategory,
+}: ServerCategoryInputProps) {
+  const { ref: categoryDropdownRef, ...categoryDropdown } = useDropdown();
+
+  return (
+    <div className="dialog-field">
+      <label>CATEGORY</label>
+      <div className="custom-select-wrapper" ref={categoryDropdownRef}>
+        <div className="creatable-select">
+          {customCategory ? (
+            <>
+              <input
+                className="creatable-select-input"
+                placeholder="New category name"
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                autoFocus
+              />
+              <button className="creatable-select-toggle" onClick={() => categoryDropdown.toggle()}>
+                <HiChevronDown
+                  className={`custom-select-arrow ${categoryDropdown.isOpen ? "open" : ""}`}
+                />
+              </button>
+            </>
+          ) : (
+            <button
+              className="creatable-select-selected"
+              onClick={categoryDropdown.toggle}
+              type="button"
+            >
+              <span>{category}</span>
+              <HiChevronDown
+                className={`custom-select-arrow ${categoryDropdown.isOpen ? "open" : ""}`}
+              />
+            </button>
+          )}
+        </div>
+        {categoryDropdown.isOpen && (
+          <div className="custom-select-dropdown">
+            <div className="custom-select-list">
+              <button
+                key={UNCATEGORIZED}
+                className={`custom-select-item ${category === UNCATEGORIZED ? "active" : ""}`}
+                onClick={() => {
+                  setCustomCategory(false);
+                  setCategory(UNCATEGORIZED);
+                  categoryDropdown.close();
+                }}
+              >
+                <span>{UNCATEGORIZED}</span>
+              </button>
+              {existingCategories.map((cat) => (
+                <button
+                  key={cat}
+                  className={`custom-select-item ${category === cat ? "active" : ""}`}
+                  onClick={() => {
+                    setCustomCategory(false);
+                    setCategory(cat);
+                    categoryDropdown.close();
+                  }}
+                >
+                  <span>{cat}</span>
+                </button>
+              ))}
+              <button
+                className="custom-select-item"
+                onClick={() => {
+                  setCustomCategory(true);
+                  setCategory("");
+                  categoryDropdown.close();
+                }}
+              >
+                <span>+ New category</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export type ServerDialogProps = { type: "new" } | { type: "edit"; server: Server };
 
 export function ServerDialog(dialogProps: ServerDialogProps) {
@@ -16,11 +113,11 @@ export function ServerDialog(dialogProps: ServerDialogProps) {
     dialogProps.type === "edit" ? dialogProps.server.ip : "",
   );
   const [category, setCategory] = useState(
-    dialogProps.type === "edit" ? dialogProps.server.category : "",
+    dialogProps.type === "edit" && !!dialogProps.server.category
+      ? dialogProps.server.category
+      : UNCATEGORIZED,
   );
   const [customCategory, setCustomCategory] = useState(false);
-
-  const { ref: categoryDropdownRef, ...categoryDropdown } = useDropdown();
 
   const existingCategories = [...new Set(servers.map((s) => s.category).filter((c) => c))];
 
@@ -29,7 +126,7 @@ export function ServerDialog(dialogProps: ServerDialogProps) {
 
     const name = serverName.trim() || serverAddress.trim();
     const ip = serverAddress.trim();
-    const cat = category.trim();
+    const cat = category.trim() === UNCATEGORIZED ? "" : category.trim();
 
     if (dialogProps.type === "new") {
       addServer(name, ip, cat);
@@ -45,7 +142,6 @@ export function ServerDialog(dialogProps: ServerDialogProps) {
       className="dialog"
       onClick={(e) => {
         e.stopPropagation();
-        if (categoryDropdown.isOpen) categoryDropdown.close();
       }}
     >
       <h2 className="dialog-title">{dialogProps.type === "edit" ? "Edit Server" : "Add Server"}</h2>
@@ -71,64 +167,13 @@ export function ServerDialog(dialogProps: ServerDialogProps) {
           />
         </div>
 
-        <div className="dialog-field">
-          <label>CATEGORY</label>
-          {customCategory ? (
-            <input
-              placeholder="New category name"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleConfirm()}
-              autoFocus
-            />
-          ) : (
-            <div className="custom-select-wrapper" ref={categoryDropdownRef}>
-              <button className="custom-select" onClick={categoryDropdown.toggle} type="button">
-                <span>{category || "No category"}</span>
-                <HiChevronDown
-                  className={`custom-select-arrow ${categoryDropdown.isOpen ? "open" : ""}`}
-                />
-              </button>
-              {categoryDropdown.isOpen && (
-                <div className="custom-select-dropdown">
-                  <div className="custom-select-list">
-                    <button
-                      className={`custom-select-item ${!category ? "active" : ""}`}
-                      onClick={() => {
-                        setCategory("");
-                        categoryDropdown.close();
-                      }}
-                    >
-                      <span>No category</span>
-                    </button>
-                    {existingCategories.map((cat) => (
-                      <button
-                        key={cat}
-                        className={`custom-select-item ${category === cat ? "active" : ""}`}
-                        onClick={() => {
-                          setCategory(cat);
-                          categoryDropdown.close();
-                        }}
-                      >
-                        <span>{cat}</span>
-                      </button>
-                    ))}
-                    <button
-                      className="custom-select-item"
-                      onClick={() => {
-                        setCustomCategory(true);
-                        setCategory("");
-                        categoryDropdown.close();
-                      }}
-                    >
-                      <span>+ New category</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        <ServerCategoryInput
+          category={category}
+          setCategory={setCategory}
+          customCategory={customCategory}
+          setCustomCategory={setCustomCategory}
+          existingCategories={existingCategories}
+        />
       </div>
 
       <div className="dialog-actions">

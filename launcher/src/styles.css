@@ -2030,6 +2030,10 @@ body {
   pointer-events: none;
 }
 
+.dialog-field input::placeholder {
+  color: var(--text-dim);
+}
+
 .dialog-field-info {
   font-family: var(--font-display), sans-serif;
   font-size: 12px;
@@ -2043,12 +2047,12 @@ body {
   position: relative;
 }
 
-.custom-select {
+.custom-select,
+.creatable-select {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 11px 14px;
   background: var(--glass-light);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -2058,6 +2062,10 @@ body {
   cursor: pointer;
   transition: all 0.2s;
   text-align: left;
+}
+
+.custom-select:not(.creatable-select) {
+  padding: 11px 14px;
 }
 
 .custom-select:hover {
@@ -2288,6 +2296,82 @@ body {
 .dialog-confirm:disabled {
   opacity: 0.6;
   cursor: wait;
+}
+
+.creatable-select {
+  display: flex;
+  align-items: stretch;
+  background: var(--glass-light);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+  overflow: hidden;
+}
+
+.creatable-select:hover:has(.creatable-select-selected),
+.creatable-select:has(.creatable-select-toggle:hover) {
+  border-color: var(--border-light);
+}
+
+.creatable-select:focus-within:has(.creatable-select-input:focus) {
+  border-color: var(--border-glow);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.creatable-select .creatable-select-selected {
+  display: flex;
+  padding: 11px 14px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: transparent;
+  border: none;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+}
+
+.creatable-select .creatable-select-input {
+  flex: 1;
+  align-self: stretch;
+  padding: 11px 14px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-family: var(--font-body);
+  outline: none;
+  min-width: 0;
+}
+
+.creatable-select .creatable-select-input:focus {
+  box-shadow: none;
+}
+
+.creatable-select .creatable-select-toggle {
+  width: 40px;
+  flex-shrink: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.creatable-select .creatable-select-toggle:focus {
+  outline: none;
 }
 
 /* ═══ Note Viewer ═══ */
