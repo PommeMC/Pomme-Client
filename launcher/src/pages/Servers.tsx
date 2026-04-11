@@ -174,7 +174,11 @@ export default function ServersPage({ handleLaunch }: { handleLaunch: handleLaun
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  const categories = [...new Set(servers.map((s) => s.category || ""))];
+  const categories = [...new Set(servers.map((s) => s.category || ""))].sort((a, b) => {
+    if (a === "") return -1;
+    if (b === "") return 1;
+    return a.localeCompare(b);
+  });
   const grouped: Record<string, Server[]> = {};
   for (const cat of categories) {
     grouped[cat] = servers.filter((s) => (s.category || "") === cat);
