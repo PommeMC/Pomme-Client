@@ -200,6 +200,8 @@
 //!   always the signed form (empty signatures appended)
 //! - `update_advancements` drops (old-form icons nested in display data);
 //!   serializer ids from `particles` (18) up shift
+//! - `player_chat`/`disguised_chat` carry a direct chat-type registry id where
+//!   1.20.5 put a holder (bumped by one on the way through)
 //!
 //! Known limitation (accepted): an inbound item stack carrying a data
 //! component at/after the first id the versions number differently (26.1:
