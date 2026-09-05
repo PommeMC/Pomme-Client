@@ -595,13 +595,13 @@ mod tests {
         assert_round_trips(r, from, to);
     }
 
-    /// Anchor checks against the 1.20.2 -> 26.2 registry diff. Attributes
-    /// are in pre-1.20.3 registration order (max_health first), and 1.20.3
-    /// renamed the grass item to short_grass, bridged by `RENAMED`.
-    #[test]
-    fn remap_1_20_2_anchors() {
-        let (r, from, to) = setup(764);
-
+    /// The anchors 1.20.1 and 1.20.2 share: attributes are in pre-1.20.3
+    /// registration order (max_health first), 1.20.3 renamed the grass item
+    /// to short_grass (bridged by `RENAMED`), and no component registry
+    /// exists yet. Their item, entity, particle and block-entity registries
+    /// are byte-identical; 1.20.2 only added an attribute after the pinned
+    /// one, eleven sponge sounds, and two reworked game events.
+    fn assert_pre_1_20_3_anchors(r: &RegistryRemaps, from: &RegistryTable, to: &RegistryTable) {
         assert_eq!(
             from.name_of(ClientRegistry::Attribute, 0),
             Some("generic.max_health")
@@ -622,9 +622,20 @@ mod tests {
         assert_chain_remapped(r, from);
         assert_unmapped(r, from, ClientRegistry::EntityType, "boat");
 
-        // No component registry exists at 764.
         assert_eq!(r.remap(ClientRegistry::DataComponentType, 0), None);
+    }
 
+    #[test]
+    fn remap_1_20_2_anchors() {
+        let (r, from, to) = setup(764);
+        assert_pre_1_20_3_anchors(r, from, to);
+        assert_round_trips(r, from, to);
+    }
+
+    #[test]
+    fn remap_1_20_1_anchors() {
+        let (r, from, to) = setup(763);
+        assert_pre_1_20_3_anchors(r, from, to);
         assert_round_trips(r, from, to);
     }
 

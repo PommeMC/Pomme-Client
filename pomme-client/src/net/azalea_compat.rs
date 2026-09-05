@@ -222,8 +222,8 @@ fn no_translation_without_coverage() {
             v.name
         );
     }
-    assert!(PacketTable::for_protocol(763).is_none());
-    assert!(crate::net::translate::Translation::for_protocol(763).is_none());
+    assert!(PacketTable::for_protocol(762).is_none());
+    assert!(crate::net::translate::Translation::for_protocol(762).is_none());
 }
 
 /// 26.2 appended a trailing session-id UUID to login_finished

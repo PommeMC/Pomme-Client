@@ -102,7 +102,8 @@ struct TypeMaps {
 /// classes in single `.addFlow(PacketFlow.X, new PacketSet()...)` chains.
 /// Resource names don't exist yet at these versions; they are derived from
 /// the class names, which is exactly how 1.20.5 named them. `None` for a
-/// direction with no registrations (handshake clientbound).
+/// direction with no registrations (handshake clientbound) or for a phase the
+/// version predates (configuration, before 1.20.2).
 ///
 /// Assumes each enum constant is on one line, as CFR emits them; a decompile
 /// that wrapped them would yield a short table rather than an error, which the
@@ -120,9 +121,11 @@ fn parse_legacy(
         "game" => "PLAY",
         _ => unreachable!(),
     };
-    let start = source
-        .find(&format!("    {constant}(\""))
-        .ok_or_else(|| format!("ConnectionProtocol: no {constant} constant"))?;
+    // 1.20.2 names its constants (`CONFIGURATION("configuration", ..)`); older
+    // enums open with the numeric protocol id, so the argument isn't quoted.
+    let Some(start) = source.find(&format!("    {constant}(")) else {
+        return Ok(None);
+    };
     let line = source[start..]
         .lines()
         .next()
@@ -231,9 +234,12 @@ fn generate(
 
     for (i, (key, file, has_clientbound)) in PHASES.iter().enumerate() {
         let (serverbound, clientbound) = if let Some(source) = &legacy {
+            let serverbound = parse_legacy(source, key, Direction::Serverbound)?;
+            if serverbound.is_none() && *key != "configuration" {
+                return Err(format!("ConnectionProtocol: no {key} serverbound").into());
+            }
             (
-                parse_legacy(source, key, Direction::Serverbound)?
-                    .ok_or_else(|| format!("ConnectionProtocol: no {key} serverbound"))?,
+                serverbound.unwrap_or_default(),
                 parse_legacy(source, key, Direction::Clientbound)?,
             )
         } else {
@@ -246,6 +252,8 @@ fn generate(
             )
         };
         match (clientbound.is_some(), has_clientbound) {
+            // The configuration phase doesn't exist before 1.20.2.
+            (false, true) if legacy.is_some() && *key == "configuration" => {}
             (false, true) => return Err(format!("{file}: no CLIENTBOUND_TEMPLATE").into()),
             (true, false) => {
                 return Err(format!("{file}: unexpected CLIENTBOUND_TEMPLATE").into());
