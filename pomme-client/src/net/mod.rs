@@ -494,3 +494,40 @@ pub enum NetworkEvent {
         footer: Vec<crate::ui::text::TextSpan>,
     },
 }
+
+/// The client information pomme reports. The configuration and game phase
+/// packets wrap the same struct under different field names, and 1.20.1 sends
+/// it in the game phase only, so all three sites share this.
+pub fn client_information(
+    view_distance: u8,
+) -> azalea_protocol::common::client_information::ClientInformation {
+    use azalea_entity::HumanoidArm;
+    use azalea_protocol::common::client_information::*;
+    ClientInformation {
+        language: "en_us".into(),
+        view_distance,
+        chat_visibility: ChatVisibility::Full,
+        chat_colors: true,
+        model_customization: ModelCustomization {
+            cape: true,
+            jacket: true,
+            left_sleeve: true,
+            right_sleeve: true,
+            left_pants: true,
+            right_pants: true,
+            hat: true,
+        },
+        main_hand: HumanoidArm::Right,
+        text_filtering_enabled: false,
+        allows_listing: true,
+        particle_status: ParticleStatus::All,
+    }
+}
+
+/// The `minecraft:brand` payload pomme announces itself with. Sent from the
+/// configuration phase, or the game phase on versions without one.
+pub fn brand_payload() -> Vec<u8> {
+    let mut out = Vec::new();
+    azalea_core::delta::AzBuf::azalea_write(&String::from("pomme"), &mut out).unwrap();
+    out
+}

@@ -689,7 +689,7 @@ fn translate_set_time_774() {
 /// action bodies in the references), through each version's id table.
 #[test]
 fn translate_attack_old_versions() {
-    for protocol in [774, 773, 772, 771, 770, 769, 768, 767, 766, 765, 764] {
+    for protocol in [774, 773, 772, 771, 770, 769, 768, 767, 766, 765, 764, 763] {
         let frames =
             translation_for(protocol).translate_outbound_game_frame(wire::encode_attack(42));
         let interact = old_id(protocol, Direction::Serverbound, "interact");
@@ -981,7 +981,7 @@ fn assert_velocity(v: azalea_core::position::Vec3) {
 /// 1.21.9-era rewrites apply to them.
 #[test]
 fn translate_add_entity_old_versions() {
-    for protocol in [772, 771, 770, 769, 768, 767, 766, 765, 764] {
+    for protocol in [772, 771, 770, 769, 768, 767, 766, 765, 764, 763] {
         let mut old = Vec::new();
         wire::write_varint(
             &mut old,
@@ -1972,28 +1972,12 @@ fn translate_config_registry_data_765() {
     use azalea_buf::AzBuf;
     use azalea_protocol::packets::config::ClientboundConfigPacket;
     use azalea_registry::DataRegistry;
-    use simdnbt::owned::{NbtCompound, NbtList, NbtTag};
+    use simdnbt::owned::NbtTag;
 
-    let entry = |name: &str, id: i32| {
-        let mut element = NbtCompound::new();
-        element.insert("height", NbtTag::Int(384));
-        let mut e = NbtCompound::new();
-        e.insert("name", NbtTag::String(name.into()));
-        e.insert("id", NbtTag::Int(id));
-        e.insert("element", NbtTag::Compound(element));
-        e
-    };
-    let mut registry = NbtCompound::new();
-    registry.insert("type", NbtTag::String("minecraft:dimension_type".into()));
-    registry.insert(
-        "value",
-        NbtTag::List(NbtList::from(vec![
-            entry("minecraft:custom_end", 1),
-            entry("minecraft:custom_overworld", 0),
-        ])),
-    );
-    let mut root = NbtCompound::new();
-    root.insert("minecraft:dimension_type", NbtTag::Compound(registry));
+    let root = dimension_registry_codec(&[
+        ("minecraft:custom_end", 1),
+        ("minecraft:custom_overworld", 0),
+    ]);
 
     let mut old = Vec::new();
     wire::write_varint(
@@ -2038,8 +2022,7 @@ fn translate_config_registry_data_765() {
 /// the shared tail (seed 42, survival, no previous type, no death location).
 fn write_spawn_info_765(old: &mut Vec<u8>, dimension_type: &str, dimension: &str) {
     for key in [dimension_type, dimension] {
-        wire::write_varint(old, key.len() as u32);
-        old.extend_from_slice(key.as_bytes());
+        write_utf(old, key);
     }
     old.extend_from_slice(&42u64.to_be_bytes()); // hashed seed
     old.push(0); // game type
@@ -2231,8 +2214,13 @@ fn translate_chat_command_765() {
 
 /// Appends a 1.20.2 length-prefixed JSON component.
 fn write_json(out: &mut Vec<u8>, json: &str) {
-    wire::write_varint(out, json.len() as u32);
-    out.extend_from_slice(json.as_bytes());
+    write_utf(out, json);
+}
+
+/// A length-prefixed string, the wire form of every resource key and name.
+fn write_utf(out: &mut Vec<u8>, s: &str) {
+    wire::write_varint(out, s.len() as u32);
+    out.extend_from_slice(s.as_bytes());
 }
 
 /// The expected 26.2-side component for a JSON literal, parsed with
@@ -2717,4 +2705,292 @@ fn lp_vec3_roundtrip() {
             "{v:?} decoded as {decoded:?} (tolerance {tolerance})"
         );
     }
+}
+
+/// A pre-1.20.5 registry codec holding one dimension-type registry, in the
+/// `{registry: {type, value: [{name, id, element}]}}` shape.
+fn dimension_registry_codec(dimensions: &[(&str, i32)]) -> simdnbt::owned::NbtCompound {
+    use simdnbt::owned::{NbtCompound, NbtList, NbtTag};
+
+    let entries: Vec<NbtCompound> = dimensions
+        .iter()
+        .map(|&(name, id)| {
+            let mut element = NbtCompound::new();
+            element.insert("height", NbtTag::Int(384));
+            let mut e = NbtCompound::new();
+            e.insert("name", NbtTag::String(name.into()));
+            e.insert("id", NbtTag::Int(id));
+            e.insert("element", NbtTag::Compound(element));
+            e
+        })
+        .collect();
+    let mut registry = NbtCompound::new();
+    registry.insert("type", NbtTag::String("minecraft:dimension_type".into()));
+    registry.insert("value", NbtTag::List(NbtList::from(entries)));
+    let mut root = NbtCompound::new();
+    root.insert("minecraft:dimension_type", NbtTag::Compound(registry));
+    root
+}
+
+/// The same codec in 1.20.1's form: the empty root name `NbtIo.write` emitted
+/// before 1.20.2 sits between the tag byte and the payload.
+fn write_registry_codec_763(old: &mut Vec<u8>, dimensions: &[(&str, i32)]) {
+    use azalea_buf::AzBuf;
+    use simdnbt::owned::NbtTag;
+
+    let mut unnamed = Vec::new();
+    NbtTag::Compound(dimension_registry_codec(dimensions))
+        .azalea_write(&mut unnamed)
+        .unwrap();
+    old.push(unnamed[0]); // tag type
+    old.extend_from_slice(&0u16.to_be_bytes()); // the empty root name
+    old.extend_from_slice(&unnamed[1..]);
+}
+
+/// A 1.20.1 game `login`: the registry codec rides inline ahead of the spawn
+/// info, whose fields hadn't been gathered into `CommonPlayerSpawnInfo` yet,
+/// and `doLimitedCrafting` doesn't exist.
+fn write_login_763(old: &mut Vec<u8>, dimension_type: &str, dimensions: &[(&str, i32)]) {
+    wire::write_varint(old, old_id(763, Direction::Clientbound, "login"));
+    old.extend_from_slice(&7i32.to_be_bytes()); // player id
+    old.push(0); // hardcore
+    old.push(0); // game type: survival
+    old.push(0xFF); // previous game type: none
+    wire::write_varint(old, 1); // one level
+    write_utf(old, "minecraft:overworld");
+    write_registry_codec_763(old, dimensions);
+    for key in [dimension_type, "minecraft:overworld"] {
+        write_utf(old, key);
+    }
+    old.extend_from_slice(&42u64.to_be_bytes()); // hashed seed
+    wire::write_varint(old, 20); // max players
+    wire::write_varint(old, 12); // chunk radius
+    wire::write_varint(old, 10); // simulation distance
+    old.extend_from_slice(&[0, 1]); // reducedDebugInfo, showDeathScreen
+    old.extend_from_slice(&[0, 0, 0]); // isDebug, isFlat, no death location
+    wire::write_varint(old, 8); // portal cooldown
+}
+
+/// 1.20.1 ships the registries inside the game `login` packet, which the join
+/// splits into the per-registry frames later versions send in the
+/// configuration phase; the captured order then keys the spawn-info rewrite.
+#[test]
+fn translate_login_registries_763() {
+    use azalea_protocol::packets::config::ClientboundConfigPacket;
+    use azalea_registry::DataRegistry;
+
+    let mut old = Vec::new();
+    write_login_763(
+        &mut old,
+        "minecraft:custom_end",
+        &[
+            ("minecraft:custom_end", 1),
+            ("minecraft:custom_overworld", 0),
+        ],
+    );
+
+    let frames = translation_for(763)
+        .split_login_registries(&old)
+        .expect("registry codec");
+    assert_eq!(frames.len(), 1);
+    let packet: ClientboundConfigPacket =
+        azalea_protocol::read::deserialize_packet(&mut std::io::Cursor::new(&frames[0])).unwrap();
+    let ClientboundConfigPacket::RegistryData(p) = packet else {
+        panic!("wrong packet");
+    };
+    assert_eq!(p.registry_id.to_string(), "minecraft:dimension_type");
+    let names: Vec<String> = p.entries.iter().map(|(n, _)| n.to_string()).collect();
+    assert_eq!(
+        names,
+        ["minecraft:custom_overworld", "minecraft:custom_end"]
+    );
+
+    // The same frame then decodes as a game login, its dimension key resolved
+    // against the order just captured.
+    let ClientboundGamePacket::Login(p) = translate_and_decode(763, old) else {
+        panic!("wrong packet");
+    };
+    assert_eq!(p.player_id, MinecraftEntityId(7));
+    assert_eq!(p.levels, vec!["minecraft:overworld".into()]);
+    assert_eq!(p.max_players, 20);
+    assert!(p.show_death_screen);
+    assert!(!p.enforces_secure_chat);
+    assert_eq!(p.common.dimension_type.protocol_id(), 1);
+    assert_eq!(p.common.dimension.to_string(), "minecraft:overworld");
+    assert_eq!(p.common.seed, 42);
+}
+
+/// 1.20.2 moved `dataToKeep` from the middle of the spawn info to the end.
+#[test]
+fn translate_respawn_763() {
+    let mut old = Vec::new();
+    wire::write_varint(&mut old, old_id(763, Direction::Clientbound, "respawn"));
+    for key in ["minecraft:the_nether", "minecraft:the_nether"] {
+        write_utf(&mut old, key);
+    }
+    old.extend_from_slice(&42u64.to_be_bytes()); // hashed seed
+    old.push(0); // game type
+    old.push(0xFF); // previous game type: none
+    old.extend_from_slice(&[0, 0]); // isDebug, isFlat
+    old.push(3); // dataToKeep, ahead of the death location at 763
+    old.push(0); // no death location
+    wire::write_varint(&mut old, 8); // portal cooldown
+
+    let ClientboundGamePacket::Respawn(p) = translate_and_decode(763, old) else {
+        panic!("wrong packet");
+    };
+    assert_eq!(p.data_to_keep, 3);
+    assert_eq!(p.common.dimension.to_string(), "minecraft:the_nether");
+    assert_eq!(p.common.seed, 42);
+}
+
+/// 1.20.2 packed `forget_level_chunk`'s two ints into a ChunkPos long, whose
+/// big-endian halves put z first.
+#[test]
+fn translate_forget_level_chunk_763() {
+    let mut old = Vec::new();
+    wire::write_varint(
+        &mut old,
+        old_id(763, Direction::Clientbound, "forget_level_chunk"),
+    );
+    old.extend_from_slice(&5i32.to_be_bytes()); // x
+    old.extend_from_slice(&(-3i32).to_be_bytes()); // z
+
+    let ClientboundGamePacket::ForgetLevelChunk(p) = translate_and_decode(763, old) else {
+        panic!("wrong packet");
+    };
+    assert_eq!(p.pos.x, 5);
+    assert_eq!(p.pos.z, -3);
+}
+
+/// 1.20.1 spawns other players with `add_player`, which 1.20.2 dropped for
+/// `add_entity`: the type is synthesized, the rotation bytes swap into
+/// pitch/yaw order and the head yaw repeats the body yaw.
+#[test]
+fn translate_add_player_763() {
+    let uuid = uuid::Uuid::from_u128(0x1234_5678_9abc_def0_1122_3344_5566_7788);
+    let mut old = Vec::new();
+    wire::write_varint(&mut old, old_id(763, Direction::Clientbound, "add_player"));
+    wire::write_varint(&mut old, 42); // entity id
+    old.extend_from_slice(uuid.as_bytes());
+    old.extend_from_slice(&1.5f64.to_be_bytes());
+    old.extend_from_slice(&64.0f64.to_be_bytes());
+    old.extend_from_slice(&(-2.5f64).to_be_bytes());
+    old.push(20); // yaw, ahead of pitch at 763
+    old.push(10); // pitch
+
+    let ClientboundGamePacket::AddEntity(p) = translate_decode_and_remap(763, old) else {
+        panic!("wrong packet");
+    };
+    assert_eq!(p.id, MinecraftEntityId(42));
+    assert_eq!(p.uuid, uuid);
+    assert_eq!(p.entity_type, azalea_registry::builtin::EntityKind::Player);
+    assert_eq!(p.position.x, 1.5);
+    assert_eq!(p.position.y, 64.0);
+    assert_eq!(p.position.z, -2.5);
+    assert_eq!((p.x_rot, p.y_rot, p.y_head_rot), (10, 20, 20));
+    assert_eq!(p.data, 0);
+}
+
+/// 1.20.2 made the serverbound login hello's profile id mandatory; 763 wraps
+/// it in a presence bool.
+#[test]
+fn translate_hello_763() {
+    let name = "pomme";
+    let uuid = uuid::Uuid::from_u128(9);
+    let id = PacketTable::latest()
+        .id(Phase::Login, Direction::Serverbound, "hello")
+        .unwrap();
+
+    let mut frame = Vec::new();
+    wire::write_varint(&mut frame, id);
+    write_utf(&mut frame, name);
+    frame.extend_from_slice(uuid.as_bytes());
+
+    let out = translation_for(763).translate_outbound_login_frame(frame.clone());
+    let split = frame.len() - 16;
+    assert_eq!(&out[..split], &frame[..split]);
+    assert_eq!(out[split], 1); // the profile id is present
+    assert_eq!(&out[split + 1..], uuid.as_bytes());
+
+    // 1.20.2 made it mandatory, so nothing is inserted from there on.
+    assert_eq!(
+        translation_for(764).translate_outbound_login_frame(frame.clone()),
+        frame
+    );
+}
+
+/// Item NBT carries an empty root name at 763 (`NbtIo.write`), so the stack
+/// walk has to consume one where the later versions have none.
+#[test]
+fn translate_container_set_content_763() {
+    let mut old = Vec::new();
+    wire::write_varint(
+        &mut old,
+        old_id(763, Direction::Clientbound, "container_set_content"),
+    );
+    old.push(1); // container id
+    wire::write_varint(&mut old, 2); // state id
+    wire::write_varint(&mut old, 1); // one slot
+    old.push(1); // present
+    wire::write_varint(&mut old, 1); // stone
+    old.push(3); // count
+    old.extend_from_slice(&[10, 0, 0, 1, 0, 1, b'd', 5, 0]); // named-root {d: 5b}
+    old.push(0); // carried: empty
+
+    let ClientboundGamePacket::ContainerSetContent(p) = translate_and_decode(763, old) else {
+        panic!("wrong packet");
+    };
+    assert_eq!(p.container_id, 1);
+    let azalea_inventory::ItemStack::Present(data) = &p.items[0] else {
+        panic!("empty stack");
+    };
+    assert_eq!(data.kind, azalea_registry::builtin::ItemKind::Stone);
+    assert_eq!(data.count, 3);
+    assert!(matches!(p.carried_item, azalea_inventory::ItemStack::Empty));
+}
+
+/// A 763 chunk names both its heightmap root and every block entity's tag.
+#[test]
+fn translate_chunk_763() {
+    let mut old = Vec::new();
+    wire::write_varint(
+        &mut old,
+        old_id(763, Direction::Clientbound, "level_chunk_with_light"),
+    );
+    old.extend_from_slice(&3i32.to_be_bytes()); // chunk x
+    old.extend_from_slice(&(-2i32).to_be_bytes()); // chunk z
+    // Named-root compound { MOTION_BLOCKING: [long; 1] }.
+    old.push(10);
+    old.extend_from_slice(&0u16.to_be_bytes()); // the empty root name
+    old.push(12); // long-array tag
+    old.extend_from_slice(&15u16.to_be_bytes());
+    old.extend_from_slice(b"MOTION_BLOCKING");
+    old.extend_from_slice(&1i32.to_be_bytes());
+    old.extend_from_slice(&7u64.to_be_bytes());
+    old.push(0); // compound end
+    let section = [0u8, 1, 0, 5, 0, 0];
+    wire::write_varint(&mut old, section.len() as u32);
+    old.extend_from_slice(&section);
+    wire::write_varint(&mut old, 1); // one block entity
+    old.push(0x11); // packed xz
+    old.extend_from_slice(&64i16.to_be_bytes()); // y
+    wire::write_varint(&mut old, 0); // block entity type
+    // Named-root {d: 5}.
+    old.extend_from_slice(&[10, 0, 0, 3, 0, 1, b'd']);
+    old.extend_from_slice(&5i32.to_be_bytes());
+    old.push(0);
+    old.extend_from_slice(&[0, 0, 0, 0, 0, 0]); // empty light masks + lists
+
+    let ClientboundGamePacket::LevelChunkWithLight(p) = translate_and_decode(763, old) else {
+        panic!("wrong packet");
+    };
+    assert_eq!(p.x, 3);
+    assert_eq!(p.z, -2);
+    assert_eq!(p.chunk_data.heightmaps.len(), 1);
+    assert_eq!(&*p.chunk_data.heightmaps[0].1, &[7u64]);
+    assert_eq!(p.chunk_data.block_entities.len(), 1);
+    let be = &p.chunk_data.block_entities[0];
+    assert_eq!(be.y, 64);
+    assert_eq!(be.data.int("d"), Some(5));
 }
