@@ -829,10 +829,8 @@ mod tests {
     /// protocol), spot-checked by hand against the decompiled
     /// `ConnectionProtocol.java` registrations. The last version before the
     /// configuration phase existed, so its enum has no CONFIGURATION constant
-    /// and both config tables are empty; 1.20.2 also dropped add_player, moved
-    /// update_enabled_features into configuration, renamed the serverbound
-    /// custom_query reply and added the chunk-batching and login_acknowledged
-    /// packets.
+    /// and both config tables are empty; login_acknowledged arrives with the
+    /// phase in 1.20.2. See `LEGACY_NAMES` for what 1.20.2 renamed.
     #[test]
     fn anchors_1_20_1() {
         let t = PacketTable::for_protocol(763).unwrap();

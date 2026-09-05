@@ -599,8 +599,10 @@ mod tests {
     /// registration order (max_health first), 1.20.3 renamed the grass item
     /// to short_grass (bridged by `RENAMED`), and no component registry
     /// exists yet. Their item, entity, particle and block-entity registries
-    /// are byte-identical; 1.20.2 only added an attribute after the pinned
-    /// one, eleven sponge sounds, and two reworked game events.
+    /// are byte-identical; 1.20.2 only adds an attribute after the pinned one
+    /// and eleven sponge sounds, and reshuffles the game-event registry
+    /// (entity_roar and entity_shake merged into entity_action, unequip
+    /// added).
     fn assert_pre_1_20_3_anchors(r: &RegistryRemaps, from: &RegistryTable, to: &RegistryTable) {
         assert_eq!(
             from.name_of(ClientRegistry::Attribute, 0),

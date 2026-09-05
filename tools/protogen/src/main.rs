@@ -42,6 +42,9 @@ const PHASES: [(&str, &str, bool); 5] = [
     ("game", "game/GameProtocols.java", true),
 ];
 
+/// First protocol with a configuration phase (1.20.2).
+const FIRST_CONFIGURATION_PROTOCOL: i32 = 764;
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("registries") {
@@ -233,9 +236,10 @@ fn generate(
     writeln!(out, "  \"protocol\": {protocol},")?;
 
     for (i, (key, file, has_clientbound)) in PHASES.iter().enumerate() {
+        let phase_absent = *key == "configuration" && protocol < FIRST_CONFIGURATION_PROTOCOL;
         let (serverbound, clientbound) = if let Some(source) = &legacy {
             let serverbound = parse_legacy(source, key, Direction::Serverbound)?;
-            if serverbound.is_none() && *key != "configuration" {
+            if serverbound.is_none() && !phase_absent {
                 return Err(format!("ConnectionProtocol: no {key} serverbound").into());
             }
             (
@@ -252,8 +256,7 @@ fn generate(
             )
         };
         match (clientbound.is_some(), has_clientbound) {
-            // The configuration phase doesn't exist before 1.20.2.
-            (false, true) if legacy.is_some() && *key == "configuration" => {}
+            (false, true) if phase_absent => {}
             (false, true) => return Err(format!("{file}: no CLIENTBOUND_TEMPLATE").into()),
             (true, false) => {
                 return Err(format!("{file}: unexpected CLIENTBOUND_TEMPLATE").into());
