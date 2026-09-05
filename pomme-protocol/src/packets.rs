@@ -182,6 +182,19 @@ mod tests {
             })
     }
 
+    /// Visits every `(phase, direction, id, name)` the table defines.
+    fn for_each_name(t: &PacketTable, mut f: impl FnMut(Phase, Direction, u32, &str)) {
+        for phase in PHASES {
+            for dir in DIRECTIONS {
+                let mut id = 0;
+                while let Some(name) = t.name_of(phase, dir, id) {
+                    f(phase, dir, id, name);
+                    id += 1;
+                }
+            }
+        }
+    }
+
     /// Asserts every id `t` has in the phase/direction resolves to the same
     /// name in `other` (a prefix check; pass `equal` to also require `other`
     /// to end at the same id).
@@ -885,19 +898,42 @@ mod tests {
     fn embedded_names_are_well_formed() {
         for embedded in &EMBEDDED {
             let t = PacketTable::for_protocol(embedded.version.protocol).unwrap();
-            for phase in PHASES {
-                for dir in DIRECTIONS {
-                    let mut id = 0;
-                    while let Some(name) = t.name_of(phase, dir, id) {
-                        assert!(
-                            is_resource_name(name),
-                            "{} {phase:?} {dir:?} {id}: malformed name '{name}'",
-                            embedded.version.name
-                        );
-                        id += 1;
-                    }
-                }
-            }
+            for_each_name(t, |phase, dir, id, name| {
+                assert!(
+                    is_resource_name(name),
+                    "{} {phase:?} {dir:?} {id}: malformed name '{name}'",
+                    embedded.version.name
+                );
+            });
+        }
+    }
+
+    /// `(legacy, named, renames)`: a pre-1.20.5 table whose names protogen
+    /// derives from class names, the first version that names those packets
+    /// itself, and the names that version changed.
+    const LEGACY_NAMES: &[(i32, i32, &[&str])] = &[
+        (765, 766, &[]),
+        // 1.20.3 split resource_pack into resource_pack_push/_pop and added a
+        // UUID, so the join layer needs a rewrite here, not just a rename.
+        (764, 765, &["resource_pack"]),
+    ];
+
+    /// Every derived name must appear in the version that named the packets
+    /// itself, bar the renames, which is what checks the derivation itself;
+    /// `embedded_names_are_well_formed` only checks its shape.
+    #[test]
+    fn legacy_names_match_the_named_version() {
+        for &(legacy, named, renames) in LEGACY_NAMES {
+            let named_table = PacketTable::for_protocol(named).unwrap();
+            for_each_name(
+                PacketTable::for_protocol(legacy).unwrap(),
+                |phase, dir, id, name| {
+                    assert!(
+                        named_table.id(phase, dir, name).is_some() || renames.contains(&name),
+                        "{legacy} {phase:?} {dir:?} {id}: '{name}' has no {named} equivalent"
+                    );
+                },
+            );
         }
     }
 

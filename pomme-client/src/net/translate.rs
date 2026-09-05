@@ -1030,6 +1030,28 @@ impl Translation {
                 }
                 true
             }
+            ClientboundGamePacket::SetEquipment(p) => {
+                for (_, stack) in &mut p.slots.slots {
+                    remap_stack(self.to_latest, stack);
+                }
+                true
+            }
+            ClientboundGamePacket::MerchantOffers(p) => {
+                // An `ItemCost` has no empty form, so an untranslatable base
+                // cost drops the offer rather than the whole trade list.
+                p.offers.retain_mut(|offer| {
+                    remap_stack(self.to_latest, &mut offer.result);
+                    if offer
+                        .cost_b
+                        .as_mut()
+                        .is_some_and(|c| !remap_with(self.to_latest, R::Item, &mut c.item))
+                    {
+                        offer.cost_b = None;
+                    }
+                    remap_with(self.to_latest, R::Item, &mut offer.base_cost_a.item)
+                });
+                true
+            }
             _ => true,
         }
     }
@@ -1278,8 +1300,15 @@ impl GameIds {
 
 /// The wire version's dimension-type names in synced-registry order,
 /// captured while splitting registry data: the pre-1.20.5 spawn-info
-/// rewrites turn a dimension-type key string into this index. Session
-/// state, reset by each registry-data packet (config precedes every join).
+/// rewrites turn a dimension-type key string into this index.
+///
+/// Global because the rewrites reach it through `FrameRewrite` fn pointers,
+/// and `Translation` is leaked per protocol rather than per connection, so a
+/// field there would scope it no better. One connection at a time is an
+/// assumption of this module.
+///
+/// TODO: a reconfiguration whose registry data omits dimension_type keeps the
+/// previous list (as `config_sequence` keeps the previous `RegistryHolder`).
 static DIMENSION_TYPES: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// Splits 765's single-NBT registry_data — a map of
@@ -1301,7 +1330,13 @@ fn split_registry_data(id: u32, payload: &[u8]) -> Option<Vec<Box<[u8]>>> {
         let entries = value.compound()?.list("value")?.compounds()?;
         let mut ordered: Vec<(i32, String, &simdnbt::owned::NbtCompound)> = entries
             .iter()
-            .map(|e| Some((e.int("id")?, e.string("name")?.to_string(), e)))
+            .map(|e| {
+                Some((
+                    e.int("id")?,
+                    e.string("name")?.to_string(),
+                    e.compound("element")?,
+                ))
+            })
             .collect::<Option<_>>()?;
         ordered.sort_unstable_by_key(|&(entry_id, ..)| entry_id);
 
@@ -1897,8 +1932,13 @@ fn translate_item_cost_765(
     optional: bool,
 ) -> Option<()> {
     let Some((item, count)) = read_old_item(cur)? else {
+        // Only the optional second cost can be absent; a missing base cost
+        // has no `ItemCost` form, so the frame is unrepresentable.
+        if !optional {
+            return None;
+        }
         out.push(0);
-        return optional.then_some(());
+        return Some(());
     };
     if optional {
         out.push(1);
@@ -1910,7 +1950,9 @@ fn translate_item_cost_765(
 }
 
 /// Rewrites `update_mob_effect`: 1.20.5 widened the amplifier from a byte
-/// to a varint and dropped the trailing factor-data NBT.
+/// to a varint and dropped the trailing factor-data NBT. Vanilla reads that
+/// byte signed, so an amplifier past 127 wraps negative on both sides; the
+/// varint carries the sign through rather than clamping it.
 fn translate_update_mob_effect_765(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
     let mut cur = Cursor::new(payload);
     let head = varint_span(&mut cur)?; // entity id
@@ -1922,7 +1964,7 @@ fn translate_update_mob_effect_765(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(payload.len());
     wire::write_varint(&mut out, id);
     out.extend_from_slice(&payload[head.start..effect.end]);
-    wire::write_varint(&mut out, amplifier.max(0) as u32);
+    wire::write_varint(&mut out, amplifier as i32 as u32);
     out.extend_from_slice(&payload[duration]);
     out.push(flags);
     Some(out)
@@ -2020,20 +2062,26 @@ fn translate_level_particles_765(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// Rewrites `player_chat` for 1.20.4: the trailing `ChatType.Bound` starts
-/// with a direct chat-type registry id where 1.20.5 put a holder (id + 1;
-/// the id itself is synced-registry order, valid as-is), and the 1.21.5
-/// globalIndex prepend folds in (this arm shadows 769's).
+/// Writes the direct chat-type registry id as the holder 1.20.5 replaced it
+/// with (id + 1, 0 being reserved for an inline value), then the rest of the
+/// frame. The id is synced-registry order either way, so it needs no remap.
+fn chat_type_holder(cur: &mut Cursor<&[u8]>, out: &mut Vec<u8>, payload: &[u8]) -> Option<()> {
+    let chat_type = u32::azalea_read_var(cur).ok()?;
+    wire::write_varint(out, chat_type + 1);
+    out.extend_from_slice(&payload[cur.position() as usize..]);
+    Some(())
+}
+
+/// Rewrites `player_chat` for 1.20.4, whose trailing `ChatType.Bound` needs
+/// the holder bump; the 1.21.5 globalIndex prepend folds in, since this arm
+/// shadows 769's.
 fn translate_player_chat_765(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
     let mut cur = Cursor::new(payload);
     let mut out = Vec::with_capacity(payload.len() + 4);
     wire::write_varint(&mut out, id);
     wire::write_varint(&mut out, 0); // globalIndex, 1.21.5+
     player_chat_head(&mut cur, &mut out, copy_nbt)?;
-    let chat_type = u32::azalea_read_var(&mut cur).ok()?;
-    wire::write_varint(&mut out, chat_type + 1);
-    out.extend_from_slice(&payload[cur.position() as usize..]);
-    Some(out)
+    chat_type_holder(&mut cur, &mut out, payload).map(|()| out)
 }
 
 /// Rewrites `disguised_chat` for 1.20.4: the same chat-type holder bump
@@ -2041,15 +2089,11 @@ fn translate_player_chat_765(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
 fn translate_disguised_chat_765(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
     let mut cur = Cursor::new(payload);
     skip_nbt(&mut cur)?; // message
-    let chat_type_at = cur.position() as usize;
-    let chat_type = u32::azalea_read_var(&mut cur).ok()?;
 
     let mut out = Vec::with_capacity(payload.len() + 2);
     wire::write_varint(&mut out, id);
-    out.extend_from_slice(&payload[..chat_type_at]);
-    wire::write_varint(&mut out, chat_type + 1);
-    out.extend_from_slice(&payload[cur.position() as usize..]);
-    Some(out)
+    out.extend_from_slice(&payload[..cur.position() as usize]);
+    chat_type_holder(&mut cur, &mut out, payload).map(|()| out)
 }
 
 /// Rewrites `respawn` for 1.20.4: the spawn info's dimension type is a

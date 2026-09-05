@@ -192,6 +192,21 @@ fn translate_and_decode(protocol: i32, old: Vec<u8>) -> ClientboundGamePacket {
     azalea_protocol::read::deserialize_packet(&mut std::io::Cursor::new(&translated)).unwrap()
 }
 
+/// `translate_and_decode` plus the id remap the connection applies next, for
+/// packets whose frame rewrite leaves item ids in the wire version's space.
+fn translate_decode_and_remap(protocol: i32, old: Vec<u8>) -> ClientboundGamePacket {
+    let mut packet = translate_and_decode(protocol, old);
+    assert!(translation_for(protocol).remap_inbound(&mut packet));
+    packet
+}
+
+/// An item 765 and 26.2 number differently (27 against 54), so a stack that
+/// never gets remapped decodes as the wrong item rather than passing by
+/// identity.
+const SHIFTED_ITEM: u8 = 27;
+const SHIFTED_ITEM_KIND: azalea_registry::builtin::ItemKind =
+    azalea_registry::builtin::ItemKind::GrassBlock;
+
 /// Exactly the joinable non-native protocols build a translation: a version
 /// with embedded tables but no `TRANSLATED` entry (the staging state while
 /// its translation is built) must stay un-joinable, and a protocol without
@@ -1246,12 +1261,14 @@ fn translate_chunk_769() {
     assert_eq!(p.chunk_data.data[..], [0, 1, 0, 0, 0, 5, 0, 0]);
 }
 
-/// 1.21.5 prepended `globalIndex` to `player_chat`; the shim synthesizes
-/// zero ahead of an otherwise identical body.
-#[test]
-fn translate_player_chat_769() {
+/// A `player_chat` frame with everything but the chat type fixed: 765 sends a
+/// direct registry id where 769 already sends a holder.
+fn player_chat_frame(protocol: i32, chat_type: u32) -> Vec<u8> {
     let mut old = Vec::new();
-    wire::write_varint(&mut old, old_id(769, Direction::Clientbound, "player_chat"));
+    wire::write_varint(
+        &mut old,
+        old_id(protocol, Direction::Clientbound, "player_chat"),
+    );
     old.extend_from_slice(&[7; 16]); // sender uuid
     wire::write_varint(&mut old, 3); // index
     old.push(0); // no signature
@@ -1261,11 +1278,63 @@ fn translate_player_chat_769() {
     old.push(0); // no last-seen entries
     old.push(0); // no unsigned content
     old.push(0); // filter: pass-through
-    wire::write_varint(&mut old, 1); // chat type holder: registry id 0
+    wire::write_varint(&mut old, chat_type);
+    old.extend_from_slice(&[8, 0, 1, b'n']); // name: NBT string
+    old.push(0); // no target
+    old
+}
+
+/// Pre-1.20.5 sends the chat type as a direct registry id where 26.2 wants a
+/// holder. Id 0 (`chat`, the ordinary message) is the holder's "inline value
+/// follows" sentinel, so leaving it alone makes normal chat undecodable.
+#[test]
+fn translate_player_chat_765() {
+    let ClientboundGamePacket::PlayerChat(p) = translate_and_decode(765, player_chat_frame(765, 0))
+    else {
+        panic!("wrong packet");
+    };
+    assert_eq!(p.global_index, 0);
+    assert_eq!(p.index, 3);
+    assert_eq!(p.body.content, "hi");
+    assert_eq!(chat_kind(&p.chat_type), 0);
+}
+
+/// `disguised_chat` carries the same `ChatType.Bound` tail, after the message
+/// component rather than a signed body.
+#[test]
+fn translate_disguised_chat_765() {
+    let mut old = Vec::new();
+    wire::write_varint(
+        &mut old,
+        old_id(765, Direction::Clientbound, "disguised_chat"),
+    );
+    old.extend_from_slice(&[8, 0, 2, b'h', b'i']); // message: NBT string
+    wire::write_varint(&mut old, 0); // chat type: direct registry id
     old.extend_from_slice(&[8, 0, 1, b'n']); // name: NBT string
     old.push(0); // no target
 
-    let ClientboundGamePacket::PlayerChat(p) = translate_and_decode(769, old) else {
+    let ClientboundGamePacket::DisguisedChat(p) = translate_and_decode(765, old) else {
+        panic!("wrong packet");
+    };
+    assert_eq!(chat_kind(&p.chat_type), 0);
+}
+
+/// The registry id behind a decoded chat-type holder; a direct (inline) one
+/// means the holder bump was missed.
+fn chat_kind(bound: &azalea_protocol::packets::game::c_player_chat::ChatTypeBound) -> u32 {
+    use azalea_registry::{Holder, Registry};
+    match &bound.chat_type {
+        Holder::Reference(kind) => kind.to_u32(),
+        Holder::Direct(_) => panic!("chat type decoded as an inline value"),
+    }
+}
+
+/// 1.21.5 prepended `globalIndex` to `player_chat`; the shim synthesizes
+/// zero ahead of an otherwise identical body.
+#[test]
+fn translate_player_chat_769() {
+    let ClientboundGamePacket::PlayerChat(p) = translate_and_decode(769, player_chat_frame(769, 1))
+    else {
         panic!("wrong packet");
     };
     assert_eq!(p.global_index, 0);
@@ -1693,11 +1762,11 @@ fn translate_set_equipment_765() {
     );
     wire::write_varint(&mut old, 9); // entity id
     old.push(0x85); // offhand, more follow
-    old.extend_from_slice(&[1, 4, 1, 0]); // bare item, empty NBT
+    old.extend_from_slice(&[1, SHIFTED_ITEM, 1, 0]); // bare item, empty NBT
     old.push(0); // head
     old.push(0); // empty stack
 
-    let ClientboundGamePacket::SetEquipment(p) = translate_and_decode(765, old) else {
+    let ClientboundGamePacket::SetEquipment(p) = translate_decode_and_remap(765, old) else {
         panic!("wrong packet");
     };
     assert_eq!(p.entity_id, MinecraftEntityId(9));
@@ -1706,6 +1775,7 @@ fn translate_set_equipment_765() {
         panic!("empty stack");
     };
     assert_eq!(data.count, 1);
+    assert_eq!(data.kind, SHIFTED_ITEM_KIND);
 }
 
 /// `merchant_offers` costs were plain stacks before 1.20.5's `ItemCost`
@@ -1719,7 +1789,7 @@ fn translate_merchant_offers_765() {
     );
     wire::write_varint(&mut old, 1); // container id
     wire::write_varint(&mut old, 1); // one offer
-    old.extend_from_slice(&[1, 1, 3, 0]); // costA: 3 stone
+    old.extend_from_slice(&[1, SHIFTED_ITEM, 3, 0]); // costA: 3 of it
     old.extend_from_slice(&[1, 4, 1, 0]); // result
     old.push(0); // costB: empty
     old.push(0); // out of stock
@@ -1732,12 +1802,13 @@ fn translate_merchant_offers_765() {
     wire::write_varint(&mut old, 30); // villager xp
     old.extend_from_slice(&[1, 1]); // show progress, can restock
 
-    let ClientboundGamePacket::MerchantOffers(p) = translate_and_decode(765, old) else {
+    let ClientboundGamePacket::MerchantOffers(p) = translate_decode_and_remap(765, old) else {
         panic!("wrong packet");
     };
     assert_eq!(p.container_id, 1);
     let offer = &p.offers[0];
     assert_eq!(offer.base_cost_a.count, 3);
+    assert_eq!(offer.base_cost_a.item, SHIFTED_ITEM_KIND);
     assert!(offer.cost_b.is_none());
     assert_eq!(offer.uses, 5);
     assert_eq!(offer.max_uses, 12);
@@ -1944,7 +2015,10 @@ fn translate_config_registry_data_765() {
         names,
         ["minecraft:custom_overworld", "minecraft:custom_end"]
     );
-    assert!(p.entries[0].1.is_some());
+    // The element alone, not the {name, id, element} wrapper 765 nests it in.
+    let element = p.entries[0].1.as_ref().expect("entry NBT");
+    assert_eq!(element.int("height"), Some(384));
+    assert_eq!(element.string("name"), None);
 
     let mut old = Vec::new();
     wire::write_varint(&mut old, old_id(765, Direction::Clientbound, "respawn"));
@@ -2579,32 +2653,6 @@ fn translate_entity_data_764() {
         p.packed_items.0[1].value,
         azalea_entity::EntityDataValue::Byte(1)
     ));
-}
-
-/// The 765 chat-type holder bump alone (NBT components already): a direct
-/// registry id decodes as the 26.2 holder form.
-#[test]
-fn translate_player_chat_765() {
-    let mut old = Vec::new();
-    wire::write_varint(&mut old, old_id(765, Direction::Clientbound, "player_chat"));
-    old.extend_from_slice(&[7; 16]); // sender uuid
-    wire::write_varint(&mut old, 3); // index
-    old.push(0); // no signature
-    old.extend_from_slice(&[2, b'h', b'i']); // content
-    old.extend_from_slice(&11u64.to_be_bytes()); // timestamp
-    old.extend_from_slice(&13u64.to_be_bytes()); // salt
-    old.push(0); // no last-seen entries
-    old.push(0); // no unsigned content
-    old.push(0); // filter: pass-through
-    wire::write_varint(&mut old, 0); // chat type: direct registry id
-    old.extend_from_slice(&[8, 0, 1, b'n']); // name: NBT string
-    old.push(0); // no target
-
-    let ClientboundGamePacket::PlayerChat(p) = translate_and_decode(765, old) else {
-        panic!("wrong packet");
-    };
-    assert_eq!(p.global_index, 0);
-    assert_eq!(p.body.content, "hi");
 }
 
 /// `update_attributes` names its attribute by registry id, and those shift
