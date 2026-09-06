@@ -219,6 +219,37 @@
 //! - everything else — items, registry_data, spawn info, login, chunks,
 //!   serializer order — matches 1.20.4 exactly (the diff is tiny)
 //!
+//! 1.20.1 -> 26.2 wire changes (all of 1.20.2's plus; 1.20 shares them):
+//! - there is no configuration phase, so the join sends no `login_acknowledged`
+//!   and reads the registries out of the game `login` packet, which carries the
+//!   whole codec inline; the brand and `client_information` move to the game
+//!   phase, where 1.20.1's `ClientPacketListener.handleLogin` sends them.
+//!   `login` itself predates `CommonPlayerSpawnInfo`, so its fields reorder
+//!   (`portalCooldown` already exists), and `respawn` carried `dataToKeep`
+//!   mid-packet rather than last
+//! - NBT roots are written with an empty name (`FriendlyByteBuf.writeNbt` went
+//!   through `NbtIo.write`, where 1.20.2 switched to `writeAnyTag`), so item
+//!   tags, entity `compound_tag` values, chunk heightmaps, every chunk block
+//!   entity and the `block_entity_data` / `tag_query` tags carry two extra
+//!   bytes the latest readers don't expect
+//! - `add_player` spawned other players; 1.20.2 dropped it for `add_entity`,
+//!   which the frame is rewritten onto (yaw and pitch swap, the head yaw
+//!   repeats the yaw, and the data and velocity fields are zero)
+//! - `forget_level_chunk` sent two ints where 1.20.2 packs a `ChunkPos` long,
+//!   whose big-endian halves put z first
+//! - serverbound login `hello` wrapped its profile id in an optional, which
+//!   1.20.2 made mandatory
+//! - `update_enabled_features` is a game packet here (1.20.2 moved it into
+//!   configuration) and drops through the id map; `update_tags` stayed a game
+//!   packet, 1.20.2 only adding a configuration copy beside it. Pomme reads
+//!   neither. `update_advancements` still nests its criteria map, but the 765
+//!   gate already drops the packet for its old-form icons
+//! - `set_display_objective` wrote a byte where 1.20.2 writes a varint; every
+//!   slot id is under 128, so the bytes match. Every other packet 1.20.2
+//!   touched (`player_info_update`, `merchant_offers`, `set_equipment`,
+//!   `map_item_data`, `update_recipes`, `player_chat`, the chunk framing) was
+//!   refactored without changing its layout
+//!
 //! Known limitation (accepted): an inbound item stack carrying a data
 //! component at/after the first id the versions number differently (26.1:
 //! 78, where 26.2 inserted `sulfur_cube_content`; 1.21.11: 41, where 26.x
@@ -267,6 +298,10 @@ pub struct Translation {
     login_hello_id: u32,
     login_profile_strict: bool,
     login_hello_bare: bool,
+    /// The latest serverbound `hello` id when the wire version wraps its
+    /// profile id in an optional (1.20.2 made it mandatory); `None` needs no
+    /// outbound rewrite.
+    login_hello_optional_uuid: Option<u32>,
     /// Latest-space; game-frame rewrites dispatch after the id remap.
     game_login_id: u32,
     set_player_team_id: u32,
@@ -279,6 +314,9 @@ pub struct Translation {
     /// Configuration-phase translation; `None` when the wire version's
     /// config ids match the latest (766 up: additions were appended).
     config_ids: Option<ConfigIds>,
+    /// Whether the wire version predates the configuration phase (1.20.2
+    /// introduced it), so the join skips it rather than translating it.
+    no_config_phase: bool,
 }
 
 /// Configuration-phase id tables and the registry-data rewrite for wire
@@ -345,6 +383,9 @@ struct GameIds {
     /// The rewrites 1.20.3 introduced (NBT text components, the scoreboard
     /// rework, the resource_pack split), for wire version 764.
     v764: Option<Ids764>,
+    /// The rewrites 1.20.2 introduced, for wire version 763. Its presence
+    /// also flags the named NBT roots, which every walker below reads.
+    v763: Option<Ids763>,
     /// Latest serverbound ids whose packet is knowingly absent on this wire
     /// version (`client_tick_end`, `player_loaded`); suppressed quietly.
     quiet_suppressed: Box<[u32]>,
@@ -445,9 +486,6 @@ impl Ids765 {
             // prepend is folded into the chat-type holder rewrite.
             i if i == self.player_chat_id => translate_player_chat_765,
             i if i == self.disguised_chat_id => translate_disguised_chat_765,
-            i if i == self.container_set_content_id => translate_container_set_content_765,
-            i if i == self.set_equipment_id => translate_set_equipment_765,
-            i if i == self.merchant_offers_id => translate_merchant_offers_765,
             i if i == self.update_mob_effect_id => translate_update_mob_effect_765,
             i if i == self.level_particles_id => translate_level_particles_765,
             i if i == self.respawn_id => translate_respawn_765,
@@ -586,10 +624,39 @@ impl Ids772 {
     }
 }
 
+/// Latest-space dispatch ids for the frame rewrites protocol 763 needs, plus
+/// the wire ids and entity type the `add_player` rewrite synthesizes with.
+struct Ids763 {
+    respawn_id: u32,
+    forget_level_chunk_id: u32,
+    block_entity_data_id: u32,
+    tag_query_id: u32,
+    add_player_old_id: u32,
+    add_entity_old_id: u32,
+    /// The wire version's `player` entity type; `remap_inbound` turns it into
+    /// the latest id after the frame decodes.
+    player_entity_type: u32,
+}
+
+impl Ids763 {
+    fn rewrite(&self, id: u32) -> Option<FrameRewrite> {
+        Some(match id {
+            // Shadows 765's respawn arm, which this one chains into.
+            i if i == self.respawn_id => translate_respawn_763,
+            i if i == self.forget_level_chunk_id => translate_forget_level_chunk_763,
+            i if i == self.block_entity_data_id => translate_block_entity_data_763,
+            i if i == self.tag_query_id => translate_tag_query_763,
+            _ => return None,
+        })
+    }
+}
+
 /// Protocols the wire translation fully covers. A version with embedded
 /// tables but no entry here (the staging state while its translation is
 /// built) pings with the right version but stays un-joinable.
-const TRANSLATED: &[i32] = &[775, 774, 773, 772, 771, 770, 769, 768, 767, 766, 765, 764];
+const TRANSLATED: &[i32] = &[
+    775, 774, 773, 772, 771, 770, 769, 768, 767, 766, 765, 764, 763,
+];
 
 /// Whether a server speaking `protocol` can be joined: the native latest
 /// version, or an older one with a complete wire translation. Gates both
@@ -650,12 +717,40 @@ impl Translation {
             // replaced it with the session-id UUID 26.2 still carries.
             login_profile_strict: matches!(protocol, 766 | 767),
             login_hello_bare: protocol <= 765,
+            login_hello_optional_uuid: (protocol <= 763)
+                .then(|| required_id(latest, Phase::Login, Direction::Serverbound, "hello")),
             game_login_id: id(Phase::Game, "login"),
             set_player_team_id: id(Phase::Game, "set_player_team"),
             update_attributes_id: id(Phase::Game, "update_attributes"),
             game_ids: GameIds::build(protocol, table, latest),
             config_ids: ConfigIds::build(protocol, table, latest),
+            no_config_phase: table
+                .name_of(Phase::Configuration, Direction::Clientbound, 0)
+                .is_none(),
         })
+    }
+
+    /// Rewrites a latest-layout serverbound login frame into the wire
+    /// version's. Only 763's `hello` differs, by wrapping the profile id in an
+    /// optional.
+    pub fn translate_outbound_login_frame(&self, frame: Vec<u8>) -> Vec<u8> {
+        let Some(hello_id) = self.login_hello_optional_uuid else {
+            return frame;
+        };
+        let mut pos = 0;
+        if wire::read_varint(&frame, &mut pos) != Some(hello_id) {
+            return frame;
+        }
+        let mut cur = Cursor::new(&frame[pos..]);
+        if skip_utf(&mut cur).is_none() {
+            return frame;
+        }
+        let uuid_at = pos + cur.position() as usize;
+        let mut out = Vec::with_capacity(frame.len() + 1);
+        out.extend_from_slice(&frame[..uuid_at]);
+        out.push(1); // the profile id is present
+        out.extend_from_slice(&frame[uuid_at..]);
+        out
     }
 
     /// Rewrites a raw login-phase frame into the latest layout.
@@ -686,6 +781,32 @@ impl Translation {
     /// Whether configuration frames need translation (765 and older).
     pub fn translates_config(&self) -> bool {
         self.config_ids.is_some()
+    }
+
+    /// Whether the wire version has no configuration phase at all, so the join
+    /// sends no `login_acknowledged` and reads the registries out of the game
+    /// `login` packet instead.
+    pub fn no_config_phase(&self) -> bool {
+        self.no_config_phase
+    }
+
+    /// Splits the registry codec out of a 1.20.1 game `login` frame into the
+    /// per-registry `registry_data` packets the configuration phase carries
+    /// from 1.20.2 on, capturing the dimension-type order on the way.
+    pub fn split_login_registries(&self, raw: &[u8]) -> Option<Vec<Box<[u8]>>> {
+        let id = required_id(
+            PacketTable::latest(),
+            Phase::Configuration,
+            Direction::Clientbound,
+            "registry_data",
+        );
+        let mut pos = 0;
+        wire::read_varint(raw, &mut pos)?;
+        let mut cur = Cursor::new(&raw[pos..]);
+        seek_login_codec_763(&mut cur)?;
+        let mut codec = Vec::new();
+        copy_unnamed_nbt(&mut cur, &mut codec, true)?;
+        split_registry_data(id, &codec)
     }
 
     /// Rewrites a raw configuration-phase frame into latest-layout frames;
@@ -771,6 +892,14 @@ impl Translation {
     pub fn translate_game_frame(&self, raw: Box<[u8]>) -> Option<Box<[u8]>> {
         let mut id_end = 0;
         let wire_id = wire::read_varint(&raw, &mut id_end)?;
+        // add_player has no latest equivalent, so it becomes an add_entity
+        // before the id map below would drop it.
+        if let Some(v) = self.game_ids.as_ref().and_then(|g| g.v763.as_ref())
+            && wire_id == v.add_player_old_id
+        {
+            let frame = translate_add_player_763(v, &raw[id_end..])?;
+            return self.translate_game_frame(frame.into_boxed_slice());
+        }
         let id = match &self.game_ids {
             Some(ids) => {
                 let Some(latest) = ids.inbound.get(wire_id as usize).copied().flatten() else {
@@ -811,7 +940,12 @@ impl Translation {
         };
         let payload: &[u8] = converted.as_deref().unwrap_or(&raw[id_end..]);
         let rewritten = if id == self.game_login_id {
-            let old = if v765.is_some() {
+            let v763 = self.game_ids.as_ref().and_then(|g| g.v763.as_ref());
+            let old = if v763.is_some() {
+                translate_game_login_763(payload)
+                    .as_deref()
+                    .and_then(translate_game_login_765)
+            } else if v765.is_some() {
                 translate_game_login_765(payload)
             } else {
                 Some(payload.to_vec())
@@ -840,10 +974,13 @@ impl Translation {
         } else if id == self.set_player_team_id {
             translate_team(id, payload, v769)
         } else if let Some(ids) = &self.game_ids {
+            // Pre-1.20.2 wire NBT carries an empty root name the latest
+            // version's readers don't expect.
+            let named_nbt = ids.v763.is_some();
             if id == ids.set_entity_data_id {
                 translate_entity_data(id, payload, ids, self.to_latest)
             } else if id == ids.level_chunk_id {
-                translate_chunk(id, payload, v769)
+                translate_chunk(id, payload, v769, named_nbt)
             } else if id == ids.set_time_id {
                 if v767.is_some() {
                     translate_set_time_767(id, payload)
@@ -852,8 +989,14 @@ impl Translation {
                 }
             } else if let Some(v) = v764.filter(|v| id == v.set_score_id) {
                 translate_set_score_764(v, payload)
+            } else if v765.is_some_and(|v| id == v.container_set_content_id) {
+                translate_container_set_content_765(id, payload, named_nbt)
+            } else if v765.is_some_and(|v| id == v.set_equipment_id) {
+                translate_set_equipment_765(id, payload, named_nbt)
+            } else if v765.is_some_and(|v| id == v.merchant_offers_id) {
+                translate_merchant_offers_765(id, payload, named_nbt)
             } else if v765.is_some_and(|v| id == v.container_set_slot_id) {
-                v767.and_then(|v| translate_container_set_slot_765(v, payload))
+                v767.and_then(|v| translate_container_set_slot_765(v, payload, named_nbt))
             } else if ids.v772.as_ref().is_some_and(|v| id == v.explode_id) {
                 translate_explode(id, payload, ids, self.to_latest)
             } else if let Some(rewrite) = ids.version_rewrite(id) {
@@ -1124,9 +1267,10 @@ impl GameIds {
     /// claim a packet the older one subsumes the newer and must win (765's
     /// respawn over 767's, say).
     fn version_rewrite(&self, id: u32) -> Option<FrameRewrite> {
-        self.v764
+        self.v763
             .as_ref()
             .and_then(|v| v.rewrite(id))
+            .or_else(|| self.v764.as_ref().and_then(|v| v.rewrite(id)))
             .or_else(|| self.v765.as_ref().and_then(|v| v.rewrite(id)))
             .or_else(|| self.v766.as_ref().and_then(|v| v.rewrite(id)))
             .or_else(|| self.v767.as_ref().and_then(|v| v.rewrite(id)))
@@ -1158,9 +1302,9 @@ impl GameIds {
                 // as do 1.20.5 through 1.21.4.
                 770..=772 => remap_serializer_772,
                 766..=769 => remap_serializer_769,
-                // 1.20.2's serializer registrations are order-identical to
-                // 1.20.4's (only the component read side changed).
-                764..=765 => remap_serializer_765,
+                // 1.20.1 and 1.20.2 register serializers in the same order
+                // as 1.20.4 (only the component read side changed).
+                763..=765 => remap_serializer_765,
                 p => panic!("no serializer map for protocol {p}"),
             },
             set_entity_data_id: id(Clientbound, "set_entity_data"),
@@ -1289,7 +1433,22 @@ impl GameIds {
                     "resource_pack",
                 ),
             }),
-            quiet_suppressed: ["client_tick_end", "player_loaded"]
+            v763: (protocol <= 763).then(|| Ids763 {
+                respawn_id: id(Clientbound, "respawn"),
+                forget_level_chunk_id: id(Clientbound, "forget_level_chunk"),
+                block_entity_data_id: id(Clientbound, "block_entity_data"),
+                tag_query_id: id(Clientbound, "tag_query"),
+                add_player_old_id: required_id(table, Phase::Game, Clientbound, "add_player"),
+                add_entity_old_id: required_id(table, Phase::Game, Clientbound, "add_entity"),
+                player_entity_type: RegistryTable::for_protocol(protocol)
+                    .and_then(|r| {
+                        r.names(ClientRegistry::EntityType)
+                            .iter()
+                            .position(|n| n == "player")
+                    })
+                    .expect("player entity type") as u32,
+            }),
+            quiet_suppressed: ["client_tick_end", "player_loaded", "chunk_batch_received"]
                 .iter()
                 .filter(|n| table.id(Phase::Game, Serverbound, n).is_none())
                 .map(|n| required_id(latest, Phase::Game, Serverbound, n))
@@ -1310,6 +1469,26 @@ impl GameIds {
 /// TODO: a reconfiguration whose registry data omits dimension_type keeps the
 /// previous list (as `config_sequence` keeps the previous `RegistryHolder`).
 static DIMENSION_TYPES: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Consumes the empty name an NBT root carries when `named` (before 1.20.2,
+/// `FriendlyByteBuf.writeNbt` went through `NbtIo.write`, which emits the tag
+/// byte, an empty UTF name and then the payload; 1.20.2 switched to
+/// `writeAnyTag`, which drops the name). `TAG_End` (an absent value) carries no
+/// name on either side.
+fn skip_root_name(cur: &mut Cursor<&[u8]>, tag: u8, named: bool) -> Option<()> {
+    if tag == 0 || !named {
+        return Some(());
+    }
+    let len = read_u16(cur)?;
+    advance(cur, len as usize)
+}
+
+/// Skips one NBT value whose root may be named; see [`skip_root_name`].
+fn skip_nbt_root(cur: &mut Cursor<&[u8]>, named: bool) -> Option<()> {
+    let tag = read_u8(cur)?;
+    skip_root_name(cur, tag, named)?;
+    skip_nbt_payload(cur, tag, 0)
+}
 
 /// Splits 765's single-NBT registry_data — a map of
 /// `{registry: {type, value: [{name, id, element}]}}` — into the
@@ -1631,7 +1810,11 @@ fn translate_container_set_slot_767(v: &Ids767, payload: &[u8]) -> Option<Vec<u8
 
 /// The 1.20.4 `container_set_slot`: 767's sentinel handling plus the
 /// old-form item translation.
-fn translate_container_set_slot_765(v: &Ids767, payload: &[u8]) -> Option<Vec<u8>> {
+fn translate_container_set_slot_765(
+    v: &Ids767,
+    payload: &[u8],
+    named_nbt: bool,
+) -> Option<Vec<u8>> {
     let container = *payload.first()? as i8;
     let mut cur = Cursor::new(payload);
     advance(&mut cur, 1)?;
@@ -1653,7 +1836,7 @@ fn translate_container_set_slot_765(v: &Ids767, payload: &[u8]) -> Option<Vec<u8
             out.extend_from_slice(&payload[state.start..slot_at + 2]);
         }
     }
-    translate_item_765(&mut cur, &mut out)?;
+    translate_item_765(&mut cur, &mut out, named_nbt)?;
     Some(out)
 }
 
@@ -1835,21 +2018,21 @@ fn translate_player_input(old_id: u32, payload: &[u8]) -> Vec<Vec<u8>> {
 /// is a malformed stack, `Some(None)` an absent one.
 /// TODO: translate the legacy NBT (enchantments, custom names, damage)
 /// into 26.2 data components instead of dropping it.
-fn read_old_item(cur: &mut Cursor<&[u8]>) -> Option<Option<(u32, u8)>> {
+fn read_old_item(cur: &mut Cursor<&[u8]>, named_nbt: bool) -> Option<Option<(u32, u8)>> {
     if read_u8(cur)? == 0 {
         return Some(None);
     }
     let item = u32::azalea_read_var(cur).ok()?;
     let count = read_u8(cur)?;
-    skip_nbt(cur)?;
+    skip_nbt_root(cur, named_nbt)?;
     Some(Some((item, count)))
 }
 
 /// Translates one 1.20.4 optional item stack into a bare 26.2 stack
 /// (count + item + empty patch). Item ids stay in the wire version's
 /// space for `remap_inbound`/`remap_stack`.
-fn translate_item_765(cur: &mut Cursor<&[u8]>, out: &mut Vec<u8>) -> Option<()> {
-    let Some((item, count)) = read_old_item(cur)? else {
+fn translate_item_765(cur: &mut Cursor<&[u8]>, out: &mut Vec<u8>, named_nbt: bool) -> Option<()> {
+    let Some((item, count)) = read_old_item(cur, named_nbt)? else {
         wire::write_varint(out, 0);
         return Some(());
     };
@@ -1863,7 +2046,11 @@ fn translate_item_765(cur: &mut Cursor<&[u8]>, out: &mut Vec<u8>) -> Option<()> 
 /// Rewrites `container_set_content`: the head (byte container id == varint
 /// for vanilla's small ids, state id, count) copies; each item translates
 /// bare.
-fn translate_container_set_content_765(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
+fn translate_container_set_content_765(
+    id: u32,
+    payload: &[u8],
+    named_nbt: bool,
+) -> Option<Vec<u8>> {
     let mut cur = Cursor::new(payload);
     advance(&mut cur, 1)?; // container id
     varint_span(&mut cur)?; // state id
@@ -1874,14 +2061,14 @@ fn translate_container_set_content_765(id: u32, payload: &[u8]) -> Option<Vec<u8
     out.extend_from_slice(&payload[..cur.position() as usize]);
     for _ in 0..=count {
         // The trailing iteration is the carried item.
-        translate_item_765(&mut cur, &mut out)?;
+        translate_item_765(&mut cur, &mut out, named_nbt)?;
     }
     Some(out)
 }
 
 /// Rewrites `set_equipment`'s slot/item pairs (the slot byte's high bit
 /// continues the list).
-fn translate_set_equipment_765(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
+fn translate_set_equipment_765(id: u32, payload: &[u8], named_nbt: bool) -> Option<Vec<u8>> {
     let mut cur = Cursor::new(payload);
     varint_span(&mut cur)?; // entity id
 
@@ -1891,7 +2078,7 @@ fn translate_set_equipment_765(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
     loop {
         let slot = read_u8(&mut cur)?;
         out.push(slot);
-        translate_item_765(&mut cur, &mut out)?;
+        translate_item_765(&mut cur, &mut out, named_nbt)?;
         if slot & 0x80 == 0 {
             return Some(out);
         }
@@ -1902,7 +2089,7 @@ fn translate_set_equipment_765(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
 /// `ItemCost` (item + count + component predicate, no NBT) with an explicit
 /// optional second cost; the result stays a plain (bare) stack and the
 /// per-offer numeric tail copies verbatim.
-fn translate_merchant_offers_765(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
+fn translate_merchant_offers_765(id: u32, payload: &[u8], named_nbt: bool) -> Option<Vec<u8>> {
     let mut cur = Cursor::new(payload);
     varint_span(&mut cur)?; // container id
     let offers = u32::azalea_read_var(&mut cur).ok()?;
@@ -1911,10 +2098,10 @@ fn translate_merchant_offers_765(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
     wire::write_varint(&mut out, id);
     out.extend_from_slice(&payload[..cur.position() as usize]);
     for _ in 0..offers {
-        translate_item_cost_765(&mut cur, &mut out, false)?;
+        translate_item_cost_765(&mut cur, &mut out, false, named_nbt)?;
         // Result: non-optional stack, bare.
-        translate_item_765(&mut cur, &mut out)?;
-        translate_item_cost_765(&mut cur, &mut out, true)?;
+        translate_item_765(&mut cur, &mut out, named_nbt)?;
+        translate_item_cost_765(&mut cur, &mut out, true, named_nbt)?;
         let tail_at = cur.position() as usize;
         advance(&mut cur, 25)?; // outOfStock, 4 ints, multiplier, demand
         out.extend_from_slice(&payload[tail_at..cur.position() as usize]);
@@ -1930,8 +2117,9 @@ fn translate_item_cost_765(
     cur: &mut Cursor<&[u8]>,
     out: &mut Vec<u8>,
     optional: bool,
+    named_nbt: bool,
 ) -> Option<()> {
-    let Some((item, count)) = read_old_item(cur)? else {
+    let Some((item, count)) = read_old_item(cur, named_nbt)? else {
         // Only the optional second cost can be absent; a missing base cost
         // has no `ItemCost` form, so the frame is unrepresentable.
         if !optional {
@@ -2104,6 +2292,132 @@ fn translate_respawn_765(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
     let mut out = Vec::with_capacity(converted.len() + 2);
     wire::write_varint(&mut out, id);
     out.extend_from_slice(&insert_sea_level(&converted)?);
+    Some(out)
+}
+
+/// Rewrites `respawn`: 1.20.2 moved `dataToKeep` from the middle of the spawn
+/// info to the end of the packet. Chains into the 765 rewrite.
+fn translate_respawn_763(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
+    let mut cur = Cursor::new(payload);
+    skip_utf(&mut cur)?; // dimension type
+    skip_utf(&mut cur)?; // dimension
+    advance(&mut cur, 12)?; // seed, game types, isDebug, isFlat
+    let at = cur.position() as usize;
+    let data_to_keep = *payload.get(at)?;
+
+    let mut moved = Vec::with_capacity(payload.len());
+    moved.extend_from_slice(&payload[..at]);
+    moved.extend_from_slice(payload.get(at + 1..)?);
+    moved.push(data_to_keep);
+    translate_respawn_765(id, &moved)
+}
+
+/// Rewrites `forget_level_chunk`: 1.20.2 packed the two coordinate ints into a
+/// `ChunkPos` long, whose big-endian bytes put z ahead of x.
+fn translate_forget_level_chunk_763(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(payload.len() + 1);
+    wire::write_varint(&mut out, id);
+    out.extend_from_slice(payload.get(4..8)?);
+    out.extend_from_slice(payload.get(..4)?);
+    Some(out)
+}
+
+/// Rewrites `block_entity_data`, whose tag is written straight through
+/// `writeNbt` and so carries the pre-1.20.2 root name. The chunk's inline
+/// block entities go through [`copy_block_entities`] instead.
+fn translate_block_entity_data_763(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
+    let mut cur = Cursor::new(payload);
+    let mut out = Vec::with_capacity(payload.len());
+    wire::write_varint(&mut out, id);
+    copy_bytes(&mut cur, &mut out, 8)?; // block pos
+    copy_varint(&mut cur, &mut out)?; // block entity type
+    copy_unnamed_nbt(&mut cur, &mut out, true)?;
+    Some(out)
+}
+
+/// Rewrites `tag_query`, the other packet writing a bare `writeNbt` tag.
+/// Pomme never sends the queries that prompt one, but the layout is covered
+/// rather than left as a trap.
+fn translate_tag_query_763(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
+    let mut cur = Cursor::new(payload);
+    let mut out = Vec::with_capacity(payload.len());
+    wire::write_varint(&mut out, id);
+    copy_varint(&mut cur, &mut out)?; // transaction id
+    copy_unnamed_nbt(&mut cur, &mut out, true)?;
+    Some(out)
+}
+
+/// Rewrites 1.20.1's `add_player` onto `add_entity`, which 1.20.2 started
+/// spawning players with. The head yaw repeats the body yaw, as
+/// `ClientPacketListener.handleAddPlayer` did; the data field and velocity are
+/// zero, neither being read for a player. Emits the wire version's own
+/// `add_entity`, which the caller feeds back through the chain.
+fn translate_add_player_763(ids: &Ids763, payload: &[u8]) -> Option<Vec<u8>> {
+    let mut cur = Cursor::new(payload);
+    varint_span(&mut cur)?; // entity id
+    advance(&mut cur, 16)?; // uuid
+    let head_end = cur.position() as usize;
+    advance(&mut cur, 24)?; // position doubles
+    let pos_end = cur.position() as usize;
+    let y_rot = read_u8(&mut cur)?;
+    let x_rot = read_u8(&mut cur)?;
+
+    let mut out = Vec::with_capacity(payload.len() + 8);
+    wire::write_varint(&mut out, ids.add_entity_old_id);
+    out.extend_from_slice(&payload[..head_end]);
+    wire::write_varint(&mut out, ids.player_entity_type);
+    out.extend_from_slice(&payload[head_end..pos_end]);
+    out.extend_from_slice(&[x_rot, y_rot, y_rot]);
+    wire::write_varint(&mut out, 0); // data
+    out.extend_from_slice(&[0; 6]); // velocity shorts
+    Some(out)
+}
+
+/// The two fixed spans a 1.20.1 `login` opens with: the player id and hardcore
+/// bool, which 1.20.2 kept in place, then the game types it moved into the
+/// spawn info.
+const LOGIN_HEAD_763: usize = 5;
+const LOGIN_PREFIX_763: usize = 7;
+
+/// Advances past a 1.20.1 `login` payload's prefix and level list, leaving the
+/// cursor on the registry codec.
+fn seek_login_codec_763(cur: &mut Cursor<&[u8]>) -> Option<()> {
+    advance(cur, LOGIN_PREFIX_763)?;
+    let levels = u32::azalea_read_var(cur).ok()?;
+    for _ in 0..levels {
+        skip_utf(cur)?;
+    }
+    Some(())
+}
+
+/// Rewrites the 1.20.1 game `login` payload into the 765 form: the registry
+/// codec rides inline here (read separately, before the game phase), and the
+/// spawn-info fields hadn't been gathered into `CommonPlayerSpawnInfo` yet.
+fn translate_game_login_763(payload: &[u8]) -> Option<Vec<u8>> {
+    let mut cur = Cursor::new(payload);
+    seek_login_codec_763(&mut cur)?;
+    let levels_end = cur.position() as usize;
+    skip_nbt_root(&mut cur, true)?; // the registry codec, read before the join
+    let spawn_at = cur.position() as usize;
+    skip_utf(&mut cur)?; // dimension type
+    skip_utf(&mut cur)?; // dimension
+    advance(&mut cur, 8)?; // seed
+    // Also where the counts begin.
+    let spawn_end = cur.position() as usize;
+    varint_span(&mut cur)?; // max players
+    varint_span(&mut cur)?; // chunk radius
+    varint_span(&mut cur)?; // simulation distance
+    advance(&mut cur, 2)?; // reducedDebugInfo, showDeathScreen
+    let counts_end = cur.position() as usize;
+
+    let mut out = Vec::with_capacity(payload.len());
+    out.extend_from_slice(&payload[..LOGIN_HEAD_763]);
+    out.extend_from_slice(&payload[LOGIN_PREFIX_763..levels_end]);
+    out.extend_from_slice(&payload[spawn_end..counts_end]);
+    out.push(0); // doLimitedCrafting, absent at 763
+    out.extend_from_slice(&payload[spawn_at..spawn_end]);
+    out.extend_from_slice(&payload[LOGIN_HEAD_763..LOGIN_PREFIX_763]);
+    out.extend_from_slice(payload.get(counts_end..)?); // isDebug .. portalCooldown
     Some(out)
 }
 
@@ -2763,7 +3077,7 @@ fn translate_entity_data(
         let Some(new) = (ids.serializer_map)(old) else {
             if ids.v772.is_some() && old == COMPOUND_TAG_SERIALIZER {
                 // compound_tag values are network NBT; drop the entry.
-                skip_nbt(&mut cur)?;
+                skip_nbt_root(&mut cur, ids.v763.is_some())?;
                 continue;
             }
             return None;
@@ -2785,7 +3099,7 @@ fn translate_entity_data(
         if new == 7 {
             let mut stack = Vec::new();
             let translated = if ids.v765.is_some() {
-                translate_item_765(&mut cur, &mut stack)
+                translate_item_765(&mut cur, &mut stack, ids.v763.is_some())
             } else {
                 translate_item_stack(&mut cur, &mut stack, remaps, ids.v772.is_some())
             };
@@ -3055,8 +3369,7 @@ fn skip_utf(cur: &mut Cursor<&[u8]>) -> Option<()> {
 }
 
 fn skip_nbt(cur: &mut Cursor<&[u8]>) -> Option<()> {
-    let tag = read_u8(cur)?;
-    skip_nbt_payload(cur, tag, 0)
+    skip_nbt_root(cur, false)
 }
 
 fn skip_optional(
@@ -3075,16 +3388,22 @@ fn skip_optional(
 /// doesn't consume it and the client recounts on block changes). The
 /// heightmaps before the section buffer are copied verbatim — or, with
 /// `nbt_heightmaps` (pre-1.21.5), converted from the network-NBT compound
-/// to the packed list — and the block entities / light data after it are
-/// copied verbatim.
-fn translate_chunk(id: u32, payload: &[u8], nbt_heightmaps: bool) -> Option<Vec<u8>> {
+/// to the packed list. The block entities after it are copied verbatim unless
+/// the wire version names its NBT roots, in which case each tag is rewritten;
+/// the light data that follows is always verbatim.
+fn translate_chunk(
+    id: u32,
+    payload: &[u8],
+    nbt_heightmaps: bool,
+    named_nbt: bool,
+) -> Option<Vec<u8>> {
     let mut cur = Cursor::new(payload);
     advance(&mut cur, 8)?; // chunk x/z ints
 
     let mut head = Vec::with_capacity(64);
     head.extend_from_slice(&payload[..8]);
     if nbt_heightmaps {
-        convert_nbt_heightmaps(&mut cur, &mut head)?;
+        convert_nbt_heightmaps(&mut cur, &mut head, named_nbt)?;
     } else {
         let maps_at = cur.position() as usize;
         let heightmaps = u32::azalea_read_var(&mut cur).ok()?;
@@ -3121,8 +3440,39 @@ fn translate_chunk(id: u32, payload: &[u8], nbt_heightmaps: bool) -> Option<Vec<
     out.extend_from_slice(&head);
     wire::write_varint(&mut out, buffer.len() as u32);
     out.extend_from_slice(&buffer);
-    out.extend_from_slice(&payload[buffer_end..]);
+    if named_nbt {
+        let mut tail = Cursor::new(payload);
+        tail.set_position(buffer_end as u64);
+        copy_block_entities(&mut tail, &mut out, named_nbt)?;
+        out.extend_from_slice(&payload[tail.position() as usize..]);
+    } else {
+        out.extend_from_slice(&payload[buffer_end..]);
+    }
     Some(out)
+}
+
+/// Copies a chunk's block-entity list (`packedXZ`, `y`, type, tag), rewriting
+/// each tag into the unnamed NBT form. Leaves the cursor at the light data.
+fn copy_block_entities(cur: &mut Cursor<&[u8]>, out: &mut Vec<u8>, named_nbt: bool) -> Option<()> {
+    let count = copy_varint(cur, out)?;
+    for _ in 0..count {
+        copy_bytes(cur, out, 3)?; // packed xz, y
+        copy_varint(cur, out)?; // block entity type
+        copy_unnamed_nbt(cur, out, named_nbt)?;
+    }
+    Some(())
+}
+
+/// Copies one NBT value, dropping the root name the wire version writes so the
+/// output is the unnamed network form the latest version expects.
+fn copy_unnamed_nbt(cur: &mut Cursor<&[u8]>, out: &mut Vec<u8>, named_nbt: bool) -> Option<()> {
+    let tag = read_u8(cur)?;
+    out.push(tag);
+    skip_root_name(cur, tag, named_nbt)?;
+    let at = cur.position() as usize;
+    skip_nbt_payload(cur, tag, 0)?;
+    out.extend_from_slice(&cur.get_ref()[at..cur.position() as usize]);
+    Some(())
 }
 
 /// Converts a pre-1.21.5 network-NBT heightmap compound (named long-array
@@ -3130,9 +3480,14 @@ fn translate_chunk(id: u32, payload: &[u8], nbt_heightmaps: bool) -> Option<Vec<
 /// NBT. Type ids from `Heightmap.Types` in the 1.21.5 reference; entries
 /// under other names or tags are dropped (vanilla only sends the three
 /// client-usage types, all mapped).
-fn convert_nbt_heightmaps(cur: &mut Cursor<&[u8]>, out: &mut Vec<u8>) -> Option<()> {
+fn convert_nbt_heightmaps(
+    cur: &mut Cursor<&[u8]>,
+    out: &mut Vec<u8>,
+    named_nbt: bool,
+) -> Option<()> {
     let mut entries: Vec<(u32, u32, std::ops::Range<usize>)> = Vec::new();
     let root = read_u8(cur)?;
+    skip_root_name(cur, root, named_nbt)?;
     if root == 10 {
         loop {
             let tag = read_u8(cur)?;

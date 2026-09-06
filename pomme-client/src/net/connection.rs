@@ -122,11 +122,16 @@ pub async fn connect_to_server(
     let conn = super::resolve::connect(&server_addr, ClientIntention::Login).await?;
     let mut conn = conn.login();
 
-    conn.write(ServerboundHello {
+    let hello = ServerboundLoginPacket::Hello(ServerboundHello {
         name: args.username.clone(),
         profile_id: args.uuid,
-    })
-    .await?;
+    });
+    let frame = serialize_frame(&hello)?;
+    let frame = match super::translate::active() {
+        Some(t) => t.translate_outbound_login_frame(frame),
+        None => frame,
+    };
+    conn.writer.raw.write(&frame).await?;
 
     tracing::info!("Sent login hello as {} ({})", args.username, args.uuid);
     if args.access_token.is_none() {
@@ -139,22 +144,36 @@ pub async fn connect_to_server(
 
     login_sequence(&mut conn, &args).await?;
 
-    conn.write(ServerboundLoginAcknowledged {}).await?;
+    // 1.20.1 and older have no configuration phase: the server enters play as
+    // soon as it has sent the profile, and the registries ride in the game
+    // login packet rather than in registry_data packets.
+    let no_config = super::translate::active().is_some_and(|t| t.no_config_phase());
+    if !no_config {
+        conn.write(ServerboundLoginAcknowledged {}).await?;
+    }
     let mut conn = conn.config();
 
-    tracing::info!("Entering configuration phase");
-    let registry_holder = config_sequence(
-        &mut conn,
-        args.view_distance,
-        &event_tx,
-        &mut game_packet_rx,
-        None,
-    )
-    .await?;
+    let joined = if no_config {
+        tracing::info!("Skipping configuration phase");
+        read_inline_registries(&mut conn).await?
+    } else {
+        tracing::info!("Entering configuration phase");
+        Joined {
+            registries: config_sequence(
+                &mut conn,
+                args.view_distance,
+                &event_tx,
+                &mut game_packet_rx,
+                None,
+            )
+            .await?,
+            deferred_login: None,
+        }
+    };
 
     let conn = conn.game();
     tracing::info!("Entering game state");
-    let biome_colors = extract_biome_climate(&registry_holder);
+    let biome_colors = extract_biome_climate(&joined.registries);
     let _ = event_tx.try_send(NetworkEvent::BiomeColors {
         colors: biome_colors,
     });
@@ -166,10 +185,60 @@ pub async fn connect_to_server(
         chat_rx,
         game_packet_tx,
         game_packet_rx,
-        registry_holder,
+        joined,
         args.view_distance,
     )
     .await
+}
+
+/// What the phases before the game loop produced.
+struct Joined {
+    registries: std::sync::Arc<azalea_core::registry_holder::RegistryHolder>,
+    /// The game `login` frame, when it was already read off the wire: a server
+    /// with no configuration phase sends it before the game loop starts, which
+    /// then replays it as its first packet.
+    deferred_login: Option<Box<[u8]>>,
+}
+
+/// Reads the registries a pre-configuration-phase server ships inside its game
+/// `login` packet, returning them with the untranslated login frame for the
+/// game loop to replay. That frame is the first the server sends after the
+/// profile (`PlayerList.placeNewPlayer`), with no acknowledgement in between.
+async fn read_inline_registries(
+    conn: &mut Connection<ClientboundConfigPacket, ServerboundConfigPacket>,
+) -> Result<Joined, ConnectionError> {
+    use azalea_core::registry_holder::RegistryHolder;
+
+    let login = conn.reader.raw.read().await?;
+    let translation = super::translate::active().expect("translation for a config-less version");
+    let Some(frames) = translation.split_login_registries(&login) else {
+        // A server that turns the join away here does it with a play-phase
+        // disconnect, the login phase having already ended.
+        if let Some(raw) = translation.translate_game_frame(login)
+            && let Ok(ClientboundGamePacket::Disconnect(p)) =
+                deserialize_packet::<ClientboundGamePacket>(&mut std::io::Cursor::new(&raw))
+        {
+            return Err(ConnectionError::Disconnected(format!("{}", p.reason)));
+        }
+        return Err(ConnectionError::Disconnected(
+            "could not read the registries from the login packet".into(),
+        ));
+    };
+
+    let mut registry_holder = RegistryHolder::default();
+    for frame in frames {
+        match deserialize_packet::<ClientboundConfigPacket>(&mut std::io::Cursor::new(&frame)) {
+            Ok(ClientboundConfigPacket::RegistryData(p)) => {
+                registry_holder.append(p.registry_id, p.entries);
+            }
+            Ok(_) => {}
+            Err(e) => skip_malformed_packet(e)?,
+        }
+    }
+    Ok(Joined {
+        registries: std::sync::Arc::new(registry_holder),
+        deferred_login: Some(login),
+    })
 }
 
 /// Adopts the server's protocol as the wire version when translation data
@@ -337,10 +406,7 @@ async fn config_sequence(
     // returns the original registries unchanged in that case).
     previous_registries: Option<&std::sync::Arc<azalea_core::registry_holder::RegistryHolder>>,
 ) -> Result<std::sync::Arc<azalea_core::registry_holder::RegistryHolder>, ConnectionError> {
-    use azalea_core::delta::AzBuf;
     use azalea_core::registry_holder::RegistryHolder;
-    use azalea_entity::HumanoidArm;
-    use azalea_protocol::common::client_information::*;
     use azalea_protocol::packets::config::*;
 
     let mut registry_holder = RegistryHolder::default();
@@ -350,15 +416,11 @@ async fn config_sequence(
     // listener; a reconfiguration sends neither.
     if previous_registries.is_none() {
         // Some servers key off the brand.
-        let mut brand_payload = Vec::new();
-        String::from("pomme")
-            .azalea_write(&mut brand_payload)
-            .unwrap();
         write_config_packet(
             conn,
             ServerboundConfigPacket::CustomPayload(s_custom_payload::ServerboundCustomPayload {
                 identifier: "minecraft:brand".into(),
-                data: brand_payload.into(),
+                data: super::brand_payload().into(),
             }),
         )
         .await?;
@@ -367,25 +429,7 @@ async fn config_sequence(
             conn,
             ServerboundConfigPacket::ClientInformation(
                 s_client_information::ServerboundClientInformation {
-                    information: ClientInformation {
-                        language: "en_us".into(),
-                        view_distance,
-                        chat_visibility: ChatVisibility::Full,
-                        chat_colors: true,
-                        model_customization: ModelCustomization {
-                            cape: true,
-                            jacket: true,
-                            left_sleeve: true,
-                            right_sleeve: true,
-                            left_pants: true,
-                            right_pants: true,
-                            hat: true,
-                        },
-                        main_hand: HumanoidArm::Right,
-                        text_filtering_enabled: false,
-                        allows_listing: true,
-                        particle_status: ParticleStatus::All,
-                    },
+                    information: super::client_information(view_distance),
                 },
             ),
         )
@@ -632,9 +676,13 @@ async fn game_loop(
     chat_rx: crossbeam_channel::Receiver<String>,
     outbound_tx: mpsc::UnboundedSender<Outbound>,
     mut outbound_rx: mpsc::UnboundedReceiver<Outbound>,
-    mut registry_holder: std::sync::Arc<azalea_core::registry_holder::RegistryHolder>,
+    joined: Joined,
     view_distance: u8,
 ) -> Result<(), ConnectionError> {
+    let Joined {
+        registries: mut registry_holder,
+        mut deferred_login,
+    } = joined;
     let sender = PacketSender::new(outbound_tx.clone());
 
     let shared_tree: crate::net::commands::SharedCommandTree =
@@ -696,22 +744,44 @@ async fn game_loop(
     let _ = event_tx.try_send(NetworkEvent::Registries(registry_holder.clone()));
 
     let translation = super::translate::active();
+    if deferred_login.is_some() {
+        // 1.20.1 sends both from its login handler, where later versions send
+        // them in the configuration phase (ClientPacketListener.handleLogin).
+        let info = ServerboundGamePacket::ClientInformation(
+            azalea_protocol::packets::game::s_client_information::ServerboundClientInformation {
+                client_information: super::client_information(view_distance),
+            },
+        );
+        write_game_frame(&mut conn.writer, translation, serialize_frame(&info)?).await?;
+
+        let brand = ServerboundGamePacket::CustomPayload(
+            azalea_protocol::packets::game::s_custom_payload::ServerboundCustomPayload {
+                identifier: "minecraft:brand".into(),
+                data: super::brand_payload().into(),
+            },
+        );
+        write_game_frame(&mut conn.writer, translation, serialize_frame(&brand)?).await?;
+    }
     loop {
-        let raw = tokio::select! {
-            Some(out) = outbound_rx.recv() => {
-                let frame = match out {
-                    Outbound::Packet(mut packet) => {
-                        if let Some(t) = translation {
-                            t.remap_outbound(&mut packet);
+        let raw = if let Some(raw) = deferred_login.take() {
+            Ok(raw)
+        } else {
+            tokio::select! {
+                Some(out) = outbound_rx.recv() => {
+                    let frame = match out {
+                        Outbound::Packet(mut packet) => {
+                            if let Some(t) = translation {
+                                t.remap_outbound(&mut packet);
+                            }
+                            serialize_frame(&*packet)?
                         }
-                        serialize_frame(&*packet)?
-                    }
-                    Outbound::Raw(bytes) => bytes,
-                };
-                write_game_frame(&mut conn.writer, translation, frame).await?;
-                continue;
+                        Outbound::Raw(bytes) => bytes,
+                    };
+                    write_game_frame(&mut conn.writer, translation, frame).await?;
+                    continue;
+                }
+                raw = conn.reader.raw.read() => raw,
             }
-            raw = conn.reader.raw.read() => raw,
         };
         let raw = match raw {
             Ok(raw) => raw,

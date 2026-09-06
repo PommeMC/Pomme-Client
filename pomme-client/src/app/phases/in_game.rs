@@ -732,31 +732,11 @@ impl GameState {
         self.last_render_distance = render_distance;
         tracing::info!("Render distance changed to {render_distance}");
 
-        use azalea_entity::HumanoidArm;
-        use azalea_protocol::common::client_information::*;
         connection
             .packet_tx
             .send(ServerboundGamePacket::ClientInformation(
                 ServerboundClientInformation {
-                    client_information: ClientInformation {
-                        language: "en_us".into(),
-                        view_distance: render_distance as u8,
-                        chat_visibility: ChatVisibility::Full,
-                        chat_colors: true,
-                        model_customization: ModelCustomization {
-                            cape: true,
-                            jacket: true,
-                            left_sleeve: true,
-                            right_sleeve: true,
-                            left_pants: true,
-                            right_pants: true,
-                            hat: true,
-                        },
-                        main_hand: HumanoidArm::Right,
-                        text_filtering_enabled: false,
-                        allows_listing: true,
-                        particle_status: ParticleStatus::All,
-                    },
+                    client_information: crate::net::client_information(render_distance as u8),
                 },
             ));
     }
