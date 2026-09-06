@@ -825,6 +825,90 @@ mod tests {
         );
     }
 
+    /// Registration-order anchors for 1.20.1 (and 1.20, which shares its
+    /// protocol), spot-checked by hand against the decompiled
+    /// `ConnectionProtocol.java` registrations. The last version before the
+    /// configuration phase existed, so its enum has no CONFIGURATION constant
+    /// and both config tables are empty; login_acknowledged arrives with the
+    /// phase in 1.20.2. See `LEGACY_NAMES` for what 1.20.2 renamed.
+    #[test]
+    fn anchors_1_20_1() {
+        let t = PacketTable::for_protocol(763).unwrap();
+        assert_eq!(t.version().protocol, 763);
+        assert_eq!(t.version().name, "1.20.1");
+        assert_eq!(
+            t.id(Phase::Game, Direction::Serverbound, "interact"),
+            Some(16)
+        );
+        assert_eq!(
+            t.id(Phase::Game, Direction::Serverbound, "container_click"),
+            Some(11)
+        );
+        assert_eq!(
+            t.id(Phase::Game, Direction::Serverbound, "resource_pack"),
+            Some(36)
+        );
+        assert_eq!(
+            t.id(Phase::Game, Direction::Clientbound, "add_player"),
+            Some(3)
+        );
+        assert_eq!(t.id(Phase::Game, Direction::Clientbound, "login"), Some(40));
+        assert_eq!(
+            t.id(Phase::Game, Direction::Clientbound, "player_info_update"),
+            Some(58)
+        );
+        assert_eq!(
+            t.id(Phase::Game, Direction::Clientbound, "resource_pack"),
+            Some(64)
+        );
+        assert_eq!(
+            t.id(Phase::Game, Direction::Clientbound, "set_score"),
+            Some(91)
+        );
+        assert_eq!(
+            t.id(Phase::Game, Direction::Clientbound, "system_chat"),
+            Some(100)
+        );
+        assert_eq!(
+            t.id(
+                Phase::Game,
+                Direction::Clientbound,
+                "update_enabled_features"
+            ),
+            Some(107)
+        );
+        assert_eq!(
+            t.id(Phase::Login, Direction::Clientbound, "game_profile"),
+            Some(2)
+        );
+        assert_eq!(
+            t.id(Phase::Login, Direction::Serverbound, "custom_query"),
+            Some(2)
+        );
+        assert_eq!(
+            t.id(Phase::Login, Direction::Serverbound, "login_acknowledged"),
+            None
+        );
+        assert!(
+            t.name_of(Phase::Configuration, Direction::Clientbound, 0)
+                .is_none()
+        );
+        assert!(
+            t.name_of(Phase::Configuration, Direction::Serverbound, 0)
+                .is_none()
+        );
+        assert!(t.name_of(Phase::Game, Direction::Serverbound, 50).is_some());
+        assert!(t.name_of(Phase::Game, Direction::Serverbound, 51).is_none());
+        assert!(
+            t.name_of(Phase::Game, Direction::Clientbound, 110)
+                .is_some()
+        );
+        assert!(
+            t.name_of(Phase::Game, Direction::Clientbound, 111)
+                .is_none()
+        );
+    }
+
     /// Registration-order anchors for 1.20.4, spot-checked by hand against
     /// the decompiled `ConnectionProtocol.java` registrations (this version
     /// predates packet resource names and the per-phase Protocols files;
@@ -916,6 +1000,14 @@ mod tests {
         // 1.20.3 split resource_pack into resource_pack_push/_pop and added a
         // UUID, so the join layer needs a rewrite here, not just a rename.
         (764, 765, &["resource_pack"]),
+        // 1.20.2 renamed the serverbound login reply, moved
+        // update_enabled_features into configuration, and dropped add_player
+        // (players spawn through add_entity from there on).
+        (
+            763,
+            764,
+            &["custom_query", "add_player", "update_enabled_features"],
+        ),
     ];
 
     /// Every derived name must appear in the version that named the packets

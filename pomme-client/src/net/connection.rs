@@ -851,19 +851,19 @@ mod tests {
 
     use super::resolve_wire;
 
-    /// 763 (1.20.1) is not a supported version at all, so it never gains a
+    /// 762 (1.19.4) is not a supported version at all, so it never gains a
     /// wire translation; 775 has one.
     #[test]
     fn resolve_wire_gates_unjoinable_versions() {
         let latest = LATEST.protocol;
         assert_eq!(resolve_wire(Some(775), latest), Ok(775));
-        assert_eq!(resolve_wire(Some(763), latest), Ok(latest));
+        assert_eq!(resolve_wire(Some(762), latest), Ok(latest));
         assert_eq!(resolve_wire(None, latest), Ok(latest));
         // An untranslated launched version is refused whatever the probe
         // yielded, unless the server itself speaks a joinable protocol.
-        assert_eq!(resolve_wire(None, 763), Err(763));
-        assert_eq!(resolve_wire(Some(763), 763), Err(763));
-        assert_eq!(resolve_wire(Some(latest), 763), Ok(latest));
+        assert_eq!(resolve_wire(None, 762), Err(762));
+        assert_eq!(resolve_wire(Some(762), 762), Err(762));
+        assert_eq!(resolve_wire(Some(latest), 762), Ok(latest));
         // A staged version (tables embedded, not yet in TRANSLATED) is
         // refused when launched and adopted around when the server is
         // joinable.
