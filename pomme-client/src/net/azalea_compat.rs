@@ -2223,6 +2223,14 @@ fn write_utf(out: &mut Vec<u8>, s: &str) {
     out.extend_from_slice(s.as_bytes());
 }
 
+/// A `{d: 5}` compound in 763's form: the tag byte, then the empty root name
+/// `NbtIo.write` emitted before 1.20.2, then the payload.
+fn write_named_nbt_d5(out: &mut Vec<u8>) {
+    out.extend_from_slice(&[10, 0, 0, 3, 0, 1, b'd']);
+    out.extend_from_slice(&5i32.to_be_bytes());
+    out.push(0);
+}
+
 /// The expected 26.2-side component for a JSON literal, parsed with
 /// azalea's own JSON path.
 fn expect_text(json: &str) -> azalea_chat::FormattedText {
@@ -2976,10 +2984,7 @@ fn translate_chunk_763() {
     old.push(0x11); // packed xz
     old.extend_from_slice(&64i16.to_be_bytes()); // y
     wire::write_varint(&mut old, 0); // block entity type
-    // Named-root {d: 5}.
-    old.extend_from_slice(&[10, 0, 0, 3, 0, 1, b'd']);
-    old.extend_from_slice(&5i32.to_be_bytes());
-    old.push(0);
+    write_named_nbt_d5(&mut old);
     old.extend_from_slice(&[0, 0, 0, 0, 0, 0]); // empty light masks + lists
 
     let ClientboundGamePacket::LevelChunkWithLight(p) = translate_and_decode(763, old) else {
@@ -2993,4 +2998,41 @@ fn translate_chunk_763() {
     let be = &p.chunk_data.block_entities[0];
     assert_eq!(be.y, 64);
     assert_eq!(be.data.int("d"), Some(5));
+}
+
+/// A standalone 763 `block_entity_data` names its tag's root too, where the
+/// chunk's inline block entities were already handled.
+#[test]
+fn translate_block_entity_data_763() {
+    let mut old = Vec::new();
+    wire::write_varint(
+        &mut old,
+        old_id(763, Direction::Clientbound, "block_entity_data"),
+    );
+    old.extend_from_slice(&0u64.to_be_bytes()); // block pos
+    wire::write_varint(&mut old, 0); // block entity type
+    write_named_nbt_d5(&mut old);
+
+    let ClientboundGamePacket::BlockEntityData(p) = translate_and_decode(763, old) else {
+        panic!("wrong packet");
+    };
+    let simdnbt::owned::Nbt::Some(tag) = p.tag else {
+        panic!("tag dropped");
+    };
+    assert_eq!(tag.as_compound().int("d"), Some(5));
+}
+
+/// `tag_query` carries the same named root after its transaction id.
+#[test]
+fn translate_tag_query_763() {
+    let mut old = Vec::new();
+    wire::write_varint(&mut old, old_id(763, Direction::Clientbound, "tag_query"));
+    wire::write_varint(&mut old, 7); // transaction id
+    write_named_nbt_d5(&mut old);
+
+    let ClientboundGamePacket::TagQuery(p) = translate_and_decode(763, old) else {
+        panic!("wrong packet");
+    };
+    assert_eq!(p.transaction_id, 7);
+    assert_eq!(p.tag.compound().and_then(|c| c.int("d")), Some(5));
 }

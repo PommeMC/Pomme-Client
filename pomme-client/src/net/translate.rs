@@ -229,8 +229,9 @@
 //!   mid-packet rather than last
 //! - NBT roots are written with an empty name (`FriendlyByteBuf.writeNbt` went
 //!   through `NbtIo.write`, where 1.20.2 switched to `writeAnyTag`), so item
-//!   tags, entity `compound_tag` values, chunk heightmaps and every chunk block
-//!   entity carry two extra bytes the latest readers don't expect
+//!   tags, entity `compound_tag` values, chunk heightmaps, every chunk block
+//!   entity and the `block_entity_data` / `tag_query` tags carry two extra
+//!   bytes the latest readers don't expect
 //! - `add_player` spawned other players; 1.20.2 dropped it for `add_entity`,
 //!   which the frame is rewritten onto (yaw and pitch swap, the head yaw
 //!   repeats the yaw, and the data and velocity fields are zero)
@@ -238,8 +239,9 @@
 //!   whose big-endian halves put z first
 //! - serverbound login `hello` wrapped its profile id in an optional, which
 //!   1.20.2 made mandatory
-//! - `update_enabled_features` and `update_tags` are game packets here (1.20.2
-//!   moved both into configuration) and drop through the id map; pomme reads
+//! - `update_enabled_features` is a game packet here (1.20.2 moved it into
+//!   configuration) and drops through the id map; `update_tags` stayed a game
+//!   packet, 1.20.2 only adding a configuration copy beside it. Pomme reads
 //!   neither. `update_advancements` still nests its criteria map, but the 765
 //!   gate already drops the packet for its old-form icons
 //! - `set_display_objective` wrote a byte where 1.20.2 writes a varint; every
@@ -627,6 +629,8 @@ impl Ids772 {
 struct Ids763 {
     respawn_id: u32,
     forget_level_chunk_id: u32,
+    block_entity_data_id: u32,
+    tag_query_id: u32,
     add_player_old_id: u32,
     add_entity_old_id: u32,
     /// The wire version's `player` entity type; `remap_inbound` turns it into
@@ -640,6 +644,8 @@ impl Ids763 {
             // Shadows 765's respawn arm, which this one chains into.
             i if i == self.respawn_id => translate_respawn_763,
             i if i == self.forget_level_chunk_id => translate_forget_level_chunk_763,
+            i if i == self.block_entity_data_id => translate_block_entity_data_763,
+            i if i == self.tag_query_id => translate_tag_query_763,
             _ => return None,
         })
     }
@@ -1430,6 +1436,8 @@ impl GameIds {
             v763: (protocol <= 763).then(|| Ids763 {
                 respawn_id: id(Clientbound, "respawn"),
                 forget_level_chunk_id: id(Clientbound, "forget_level_chunk"),
+                block_entity_data_id: id(Clientbound, "block_entity_data"),
+                tag_query_id: id(Clientbound, "tag_query"),
                 add_player_old_id: required_id(table, Phase::Game, Clientbound, "add_player"),
                 add_entity_old_id: required_id(table, Phase::Game, Clientbound, "add_entity"),
                 player_entity_type: RegistryTable::for_protocol(protocol)
@@ -2311,6 +2319,31 @@ fn translate_forget_level_chunk_763(id: u32, payload: &[u8]) -> Option<Vec<u8>> 
     wire::write_varint(&mut out, id);
     out.extend_from_slice(payload.get(4..8)?);
     out.extend_from_slice(payload.get(..4)?);
+    Some(out)
+}
+
+/// Rewrites `block_entity_data`, whose tag is written straight through
+/// `writeNbt` and so carries the pre-1.20.2 root name. The chunk's inline
+/// block entities go through [`copy_block_entities`] instead.
+fn translate_block_entity_data_763(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
+    let mut cur = Cursor::new(payload);
+    let mut out = Vec::with_capacity(payload.len());
+    wire::write_varint(&mut out, id);
+    copy_bytes(&mut cur, &mut out, 8)?; // block pos
+    copy_varint(&mut cur, &mut out)?; // block entity type
+    copy_unnamed_nbt(&mut cur, &mut out, true)?;
+    Some(out)
+}
+
+/// Rewrites `tag_query`, the other packet writing a bare `writeNbt` tag.
+/// Pomme never sends the queries that prompt one, but the layout is covered
+/// rather than left as a trap.
+fn translate_tag_query_763(id: u32, payload: &[u8]) -> Option<Vec<u8>> {
+    let mut cur = Cursor::new(payload);
+    let mut out = Vec::with_capacity(payload.len());
+    wire::write_varint(&mut out, id);
+    copy_varint(&mut cur, &mut out)?; // transaction id
+    copy_unnamed_nbt(&mut cur, &mut out, true)?;
     Some(out)
 }
 
