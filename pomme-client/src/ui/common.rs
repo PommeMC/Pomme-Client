@@ -603,15 +603,14 @@ pub fn push_slider(
         None
     };
 
-    let track_sprite = SpriteId::SliderTrack;
     elements.push(MenuElement::NineSlice {
         x,
         y,
         w,
         h,
-        sprite: track_sprite,
+        sprite: SpriteId::SliderTrack,
         border: BTN_BORDER * gs,
-        tint: if enabled { WHITE } else { COL_DISABLED },
+        tint: WHITE,
     });
 
     let handle_sprite = if actively_dragging || start_drag || hovered {
@@ -625,7 +624,7 @@ pub fn push_slider(
         w: handle_w,
         h,
         sprite: handle_sprite,
-        tint: if enabled { WHITE } else { COL_DISABLED },
+        tint: WHITE,
     });
 
     let text_col = if enabled { WHITE } else { COL_DISABLED };
