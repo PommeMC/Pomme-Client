@@ -162,9 +162,16 @@ impl ApplicationHandler for App {
                     winit::window::Icon::from_rgba(rgba.into_raw(), w, h).ok()
                 };
 
+                // Born in the persisted mode: the swapchain is sized from
+                // `inner_size()` before the window is shown, so switching after
+                // creation would leave it built for the windowed size.
+                let monitor = event_loop
+                    .primary_monitor()
+                    .or_else(|| event_loop.available_monitors().next());
                 let window_attrs = Window::default_attributes()
                     .with_title("Pomme")
                     .with_inner_size(winit::dpi::LogicalSize::new(854, 480))
+                    .with_fullscreen(self.core.display_mode.fullscreen_for(monitor))
                     .with_visible(false)
                     .with_window_icon(window_icon);
 
@@ -179,7 +186,6 @@ impl ApplicationHandler for App {
                         };
                     }
                 };
-                self.core.apply_display_mode(&window);
 
                 let mut renderer = match Renderer::new(
                     Arc::clone(&window),

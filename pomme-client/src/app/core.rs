@@ -8,7 +8,8 @@ use azalea_protocol::packets::game::{
 };
 use glam::{FloatExt, dvec3};
 use winit::keyboard::KeyCode;
-use winit::window::{CursorGrabMode, Window};
+use winit::monitor::MonitorHandle;
+use winit::window::{CursorGrabMode, Fullscreen, Window};
 
 use crate::app::input::{Action, InputState, STICK_MOVEMENT_THRESHOLD};
 use crate::app::phases::ConnectionPhase;
@@ -134,7 +135,7 @@ fn dirty_sections_for_block(
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum DisplayMode {
     Windowed,
     Borderless,
@@ -163,6 +164,25 @@ impl DisplayMode {
             1 => Self::Borderless,
             2 => Self::Fullscreen,
             _ => Self::Windowed,
+        }
+    }
+
+    /// Shared by window creation and the runtime switch so the two can't drift.
+    pub fn fullscreen_for(self, monitor: Option<MonitorHandle>) -> Option<Fullscreen> {
+        match self {
+            Self::Windowed => None,
+            Self::Borderless => Some(Fullscreen::Borderless(None)),
+            Self::Fullscreen => {
+                let video_mode = monitor.and_then(|m| {
+                    m.video_modes().max_by_key(|v| {
+                        (v.refresh_rate_millihertz(), v.size().width, v.size().height)
+                    })
+                });
+                Some(match video_mode {
+                    Some(mode) => Fullscreen::Exclusive(mode),
+                    None => Fullscreen::Borderless(None),
+                })
+            }
         }
     }
 }
@@ -282,27 +302,9 @@ impl AppCore {
     }
 
     pub fn apply_display_mode(&mut self, window: &Window) {
-        match self.display_mode {
-            DisplayMode::Windowed => {
-                window.set_fullscreen(None);
-                window.set_decorations(true);
-            }
-            DisplayMode::Borderless => {
-                window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
-            }
-            DisplayMode::Fullscreen => {
-                let monitor = window.current_monitor();
-                let video_mode = monitor.and_then(|m| {
-                    m.video_modes().max_by_key(|v| {
-                        (v.refresh_rate_millihertz(), v.size().width, v.size().height)
-                    })
-                });
-                if let Some(mode) = video_mode {
-                    window.set_fullscreen(Some(winit::window::Fullscreen::Exclusive(mode)));
-                } else {
-                    window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
-                }
-            }
+        window.set_fullscreen(self.display_mode.fullscreen_for(window.current_monitor()));
+        if self.display_mode == DisplayMode::Windowed {
+            window.set_decorations(true);
         }
     }
 

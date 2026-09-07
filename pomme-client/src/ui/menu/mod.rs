@@ -934,7 +934,7 @@ mod tests {
             };
             let json = serde_json::to_string(&settings).unwrap();
             let loaded: Settings = serde_json::from_str(&json).unwrap();
-            assert!(DisplayMode::from_u8(loaded.display_mode) == mode);
+            assert_eq!(DisplayMode::from_u8(loaded.display_mode), mode);
         }
     }
 }
