@@ -75,10 +75,7 @@ pub fn update_menu(
 
     core.input.clear_just_pressed_actions();
 
-    if core.menu.display_mode != core.display_mode {
-        core.display_mode = core.menu.display_mode;
-        core.apply_display_mode(&gfx.window);
-    }
+    core.sync_display_mode(&gfx.window);
 
     gfx.renderer.set_vsync(core.menu.vsync);
 

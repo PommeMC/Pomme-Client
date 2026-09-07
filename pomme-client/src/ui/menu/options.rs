@@ -748,7 +748,7 @@ impl MainMenu {
                         self.save_settings();
                     }
                     if label.starts_with("Fullscreen:") {
-                        self.display_mode = self.display_mode.cycle();
+                        self.set_display_mode(self.display_mode.cycle());
                     }
                     if label.starts_with("Clouds:") {
                         self.cloud_mode = self.cloud_mode.cycle();

@@ -162,9 +162,16 @@ impl ApplicationHandler for App {
                     winit::window::Icon::from_rgba(rgba.into_raw(), w, h).ok()
                 };
 
+                // Born in the persisted mode: the swapchain is sized from
+                // `inner_size()` before the window is shown, so switching after
+                // creation would leave it built for the windowed size.
+                let monitor = event_loop
+                    .primary_monitor()
+                    .or_else(|| event_loop.available_monitors().next());
                 let window_attrs = Window::default_attributes()
                     .with_title("Pomme")
                     .with_inner_size(winit::dpi::LogicalSize::new(854, 480))
+                    .with_fullscreen(self.core.display_mode.fullscreen_for(monitor))
                     .with_visible(false)
                     .with_window_icon(window_icon);
 
@@ -290,9 +297,9 @@ impl ApplicationHandler for App {
                         && !self.core.input.key_pressed(KeyCode::F3)
                         && let PhysicalKey::Code(KeyCode::F11) = event.physical_key
                     {
-                        self.core.display_mode = self.core.display_mode.cycle();
-                        self.core.menu.display_mode = self.core.display_mode;
-                        self.core.apply_display_mode(window);
+                        let display_mode = self.core.display_mode.cycle();
+                        self.core.menu.set_display_mode(display_mode);
+                        self.core.sync_display_mode(window);
                     }
                     // F2 screenshot works in every phase, like vanilla.
                     // TODO: Ctrl+F2 panoramic screenshot
