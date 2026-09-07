@@ -14,9 +14,15 @@ const NEAR: f32 = 0.1;
 /// Floor of the dynamic far plane (vanilla floors at `cloudRange * 16`
 /// instead; pomme's fixed-reach clouds derive their fade from this).
 pub(crate) const MIN_FAR: f32 = 1000.0;
-const MOUSE_SENSITIVITY: f32 = 0.15;
 /// Controller look speed in degrees per second, scaled by frame delta.
 const CONTROLLER_SENSITIVITY: f32 = 150.0;
+
+/// Vanilla mouse sensitivity curve from `MouseHandler.turnPlayer`, including
+/// the 0.15 turn scale applied by `Entity.turn`.
+fn mouse_sensitivity_multiplier(sensitivity: f32) -> f32 {
+    let scaled = sensitivity * 0.6 + 0.2;
+    scaled * scaled * scaled * 8.0 * 0.15
+}
 pub const THIRD_PERSON_DISTANCE: f32 = 4.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -165,7 +171,7 @@ impl Camera {
             * Mat4::from_rotation_x(pitch_deg.to_radians())
     }
 
-    pub fn update_look(&mut self, input: &mut InputState, dt: f32) {
+    pub fn update_look(&mut self, input: &mut InputState, dt: f32, sensitivity: f32) {
         if let Some(look_vec) = input.get_gamepad_right_analog() {
             let step = CONTROLLER_SENSITIVITY * dt;
             let y_rot_deg =
@@ -176,10 +182,11 @@ impl Camera {
 
         if input.is_cursor_captured() {
             let (dx, dy) = input.consume_mouse_delta();
-            let y_rot_deg = ((self.look_dir.y_rot_deg() + dx as f32 * MOUSE_SENSITIVITY) + 180.0)
+            let mouse_sensitivity = mouse_sensitivity_multiplier(sensitivity);
+            let y_rot_deg = ((self.look_dir.y_rot_deg() + dx as f32 * mouse_sensitivity) + 180.0)
                 .rem_euclid(360.0)
                 - 180.0;
-            let x_rot_deg = self.look_dir.x_rot_deg() + dy as f32 * MOUSE_SENSITIVITY;
+            let x_rot_deg = self.look_dir.x_rot_deg() + dy as f32 * mouse_sensitivity;
             self.look_dir = LookDirection::new(y_rot_deg, x_rot_deg);
         }
     }
@@ -477,5 +484,15 @@ impl CameraUniform {
             camera_block: [0; 4],
             fog_env: [f32::MAX, f32::MAX, 0.0, 0.0],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vanilla_default_mouse_sensitivity_is_point_fifteen() {
+        assert!((mouse_sensitivity_multiplier(0.5) - 0.15).abs() < 1e-6);
     }
 }

@@ -31,6 +31,8 @@ struct Settings {
     fov: u32,
     #[serde(default = "default_fov_effect_scale")]
     fov_effect_scale: f32,
+    #[serde(default = "default_sensitivity")]
+    sensitivity: f32,
     #[serde(default = "default_true")]
     view_bobbing: bool,
     #[serde(default)]
@@ -107,6 +109,10 @@ fn default_fov_effect_scale() -> f32 {
     1.0
 }
 
+fn default_sensitivity() -> f32 {
+    0.5
+}
+
 fn default_cloud_mode() -> u8 {
     2
 }
@@ -136,6 +142,7 @@ impl Default for Settings {
             simulation_distance: 12,
             fov: 70,
             fov_effect_scale: 1.0,
+            sensitivity: 0.5,
             view_bobbing: true,
             show_subtitles: false,
             show_autosave_indicator: true,
@@ -422,6 +429,7 @@ pub struct MainMenu {
     pub fov: u32,
     /// FOV Effects slider fraction (0..1); squared by `fov_effect()`.
     pub fov_effect_scale: f32,
+    pub sensitivity: f32,
     pub view_bobbing: bool,
     pub show_subtitles: bool,
     pub show_autosave_indicator: bool,
@@ -530,6 +538,7 @@ impl MainMenu {
             server_render_distance: 0,
             fov: settings.fov,
             fov_effect_scale: settings.fov_effect_scale,
+            sensitivity: settings.sensitivity,
             view_bobbing: settings.view_bobbing,
             show_subtitles: settings.show_subtitles,
             show_autosave_indicator: settings.show_autosave_indicator,
@@ -627,6 +636,7 @@ impl MainMenu {
                 simulation_distance: self.simulation_distance,
                 fov: self.fov,
                 fov_effect_scale: self.fov_effect_scale,
+                sensitivity: self.sensitivity,
                 view_bobbing: self.view_bobbing,
                 show_subtitles: self.show_subtitles,
                 show_autosave_indicator: self.show_autosave_indicator,
