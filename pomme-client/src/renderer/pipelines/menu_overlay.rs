@@ -3021,7 +3021,17 @@ fn build_sprite_atlas(
         }
     }
 
-    let atlas_size = 1024u32;
+    // Shelf packing gives every sprite in a row the height of the tallest one
+    // in it, so a short sprite landing after a tall one strands the difference.
+    // Packing tallest-first keeps each row's members close in height; left
+    // unsorted, the tail of the list overflowed and was dropped.
+    images.sort_by_key(|sprite| std::cmp::Reverse(sprite.3));
+
+    // Sprites are sampled with NEAREST, so a quad edge landing a hair past its
+    // region reads the neighbour. Keep a 1px gutter, as the font atlas does.
+    const PAD: u32 = 1;
+
+    let atlas_size = 2048u32;
     let mut pixels = vec![0u8; (atlas_size * atlas_size * 4) as usize];
     let mut regions = HashMap::new();
     let mut cursor_x = 0u32;
@@ -3029,13 +3039,13 @@ fn build_sprite_atlas(
     let mut row_height = 0u32;
 
     for (id, data, w, h, border) in &images {
-        if cursor_x + w > atlas_size {
+        if cursor_x + w + PAD > atlas_size {
             cursor_x = 0;
-            cursor_y += row_height;
+            cursor_y += row_height + PAD;
             row_height = 0;
         }
-        if cursor_y + h > atlas_size {
-            tracing::warn!("Sprite atlas overflow, skipping {:?}", id);
+        if cursor_y + h + PAD > atlas_size {
+            tracing::error!("Sprite atlas overflow, skipping {:?}", id);
             continue;
         }
 
@@ -3064,7 +3074,7 @@ fn build_sprite_atlas(
             },
         );
 
-        cursor_x += w;
+        cursor_x += w + PAD;
         row_height = row_height.max(*h);
     }
 
@@ -3529,8 +3539,7 @@ fn push_nine_slice(
     let bu = (tex_border / region.src_w) * uv_w;
     let bv = (tex_border / region.src_h) * uv_h;
 
-    // Snap to integer pixels; fractional edges let NEAREST sampling bleed into
-    // the neighbouring atlas sprite (no gutter between sprites).
+    // Snap to integer pixels so NEAREST sampling stays inside the region.
     let x0 = x.round();
     let y0 = y.round();
     let x1 = (x + w).round();
