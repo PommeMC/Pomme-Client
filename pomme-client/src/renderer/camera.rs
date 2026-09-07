@@ -16,14 +16,17 @@ const NEAR: f32 = 0.1;
 pub(crate) const MIN_FAR: f32 = 1000.0;
 /// Controller look speed in degrees per second, scaled by frame delta.
 const CONTROLLER_SENSITIVITY: f32 = 150.0;
+pub const THIRD_PERSON_DISTANCE: f32 = 4.0;
 
 /// Vanilla mouse sensitivity curve from `MouseHandler.turnPlayer`, including
 /// the 0.15 turn scale applied by `Entity.turn`.
+///
+/// TODO: `turnPlayer`'s other branches are unmodelled — `smoothCamera`,
+/// scoping (`sensitivityMod` without the `* 8.0`), and `invertMouseX`/`Y`.
 fn mouse_sensitivity_multiplier(sensitivity: f32) -> f32 {
     let scaled = sensitivity * 0.6 + 0.2;
     scaled * scaled * scaled * 8.0 * 0.15
 }
-pub const THIRD_PERSON_DISTANCE: f32 = 4.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum CameraMode {
@@ -491,8 +494,12 @@ impl CameraUniform {
 mod tests {
     use super::*;
 
+    /// The midpoint is the multiplier pomme hardcoded before the slider
+    /// existed.
     #[test]
-    fn vanilla_default_mouse_sensitivity_is_point_fifteen() {
-        assert!((mouse_sensitivity_multiplier(0.5) - 0.15).abs() < 1e-6);
+    fn mouse_sensitivity_curve_matches_vanilla() {
+        for (sensitivity, expected) in [(0.0, 0.0096), (0.5, 0.15), (1.0, 0.6144)] {
+            assert!((mouse_sensitivity_multiplier(sensitivity) - expected).abs() < 1e-6);
+        }
     }
 }

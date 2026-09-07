@@ -538,7 +538,9 @@ impl MainMenu {
             server_render_distance: 0,
             fov: settings.fov,
             fov_effect_scale: settings.fov_effect_scale,
-            sensitivity: settings.sensitivity,
+            // Cubed by the look curve, so an out-of-range options.json value
+            // reaches infinity and leaves the look direction NaN for good.
+            sensitivity: settings.sensitivity.clamp(0.0, 1.0),
             view_bobbing: settings.view_bobbing,
             show_subtitles: settings.show_subtitles,
             show_autosave_indicator: settings.show_autosave_indicator,
