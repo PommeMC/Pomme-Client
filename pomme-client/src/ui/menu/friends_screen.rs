@@ -103,6 +103,8 @@ impl MainMenu {
             tab: false,
             f5: false,
             scroll_delta: 0.0,
+            up_held: false,
+            space_held: false,
         };
         let mut elements = self
             .build_main(screen_w, screen_h, &backdrop_input, text_width_fn)

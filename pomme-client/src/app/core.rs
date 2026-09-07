@@ -291,6 +291,8 @@ impl AppCore {
             tab: self.input.tab_pressed(),
             f5: self.input.f5_pressed(),
             scroll_delta: self.input.consume_menu_scroll(),
+            up_held: self.input.key_pressed(KeyCode::ArrowUp),
+            space_held: self.input.key_pressed(KeyCode::Space),
         }
     }
 

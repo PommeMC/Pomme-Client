@@ -1952,6 +1952,7 @@ pub enum SpriteId {
     Incompatible,
     Unreachable,
     SteveHead,
+    PommeLogo,
     FriendsBackground,
     FriendsTab,
     FriendsTabDisabled,
@@ -3019,6 +3020,28 @@ fn build_sprite_atlas(
                 }
             }
         }
+    }
+
+    // Downscaled 4:1 with a nearest filter so the pixel art stays crisp and the
+    // 512px source doesn't dominate the atlas.
+    const POMME_LOGO_SIZE: u32 = 128;
+    match image::load_from_memory(crate::assets::POMME_ICON_PNG) {
+        Ok(img) => {
+            let scaled = image::imageops::resize(
+                &img.to_rgba8(),
+                POMME_LOGO_SIZE,
+                POMME_LOGO_SIZE,
+                image::imageops::FilterType::Nearest,
+            );
+            images.push((
+                SpriteId::PommeLogo,
+                scaled.into_raw(),
+                POMME_LOGO_SIZE,
+                POMME_LOGO_SIZE,
+                0.0,
+            ));
+        }
+        Err(e) => tracing::warn!("Failed to load pomme logo: {e}"),
     }
 
     // Shelf packing gives every sprite in a row the height of the tallest one

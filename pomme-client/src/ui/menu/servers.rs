@@ -9,7 +9,7 @@ impl MainMenu {
         text_width_fn: &dyn Fn(&str, f32) -> f32,
     ) -> MainMenuResult {
         let gs = crate::ui::hud::gui_scale(screen_w, screen_h, self.gui_scale_setting);
-        let header_h = HEADER_H * gs;
+        let header_h = HEADER_FOOTER_H * gs;
         let sep_h = SEP_H * gs;
         let entry_h = ENTRY_H * gs;
         let row_w = ROW_W * gs;
@@ -53,23 +53,7 @@ impl MainMenu {
             centered: true,
         });
 
-        elements.push(MenuElement::TiledImage {
-            x: 0.0,
-            y: list_top,
-            w: screen_w,
-            h: list_h,
-            sprite: SpriteId::MenuBackground,
-            tile_size: 32.0 * gs,
-            tint: [0.25, 0.25, 0.25, 1.0],
-        });
-        elements.push(MenuElement::Rect {
-            x: 0.0,
-            y: list_top,
-            w: screen_w,
-            h: list_h,
-            corner_radius: 0.0,
-            color: [0.0, 0.0, 0.0, 0.3],
-        });
+        push_menu_backdrop(&mut elements, 0.0, list_top, screen_w, list_h, gs);
 
         push_separator(&mut elements, 0.0, list_top - sep_h, screen_w, sep_h);
         push_separator(&mut elements, 0.0, list_bottom, screen_w, sep_h);
