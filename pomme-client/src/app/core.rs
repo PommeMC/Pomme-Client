@@ -149,6 +149,22 @@ impl DisplayMode {
             Self::Fullscreen => Self::Windowed,
         }
     }
+
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Self::Windowed => 0,
+            Self::Borderless => 1,
+            Self::Fullscreen => 2,
+        }
+    }
+
+    pub fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Borderless,
+            2 => Self::Fullscreen,
+            _ => Self::Windowed,
+        }
+    }
 }
 
 #[derive(Default, PartialEq)]
@@ -207,6 +223,8 @@ impl AppCore {
             user.access_token.clone(),
         );
 
+        let display_mode = menu.display_mode;
+
         let asset_index =
             AssetIndex::load(&data_dirs.indexes_dir, &data_dirs.objects_dir, &version);
 
@@ -220,7 +238,7 @@ impl AppCore {
         Self {
             user,
             presence,
-            display_mode: DisplayMode::Windowed,
+            display_mode,
             input: InputState::new(),
             menu,
             tokio_rt,
@@ -253,6 +271,13 @@ impl AppCore {
             tab: self.input.tab_pressed(),
             f5: self.input.f5_pressed(),
             scroll_delta: self.input.consume_menu_scroll(),
+        }
+    }
+
+    pub fn sync_display_mode(&mut self, window: &Window) {
+        if self.menu.display_mode != self.display_mode {
+            self.display_mode = self.menu.display_mode;
+            self.apply_display_mode(window);
         }
     }
 

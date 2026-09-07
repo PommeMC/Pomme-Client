@@ -89,6 +89,8 @@ struct Settings {
     cloud_mode: u8,
     #[serde(default = "default_attack_indicator")]
     attack_indicator: u8,
+    #[serde(default)]
+    display_mode: u8,
 }
 
 fn default_fov() -> u32 {
@@ -165,6 +167,7 @@ impl Default for Settings {
             ui_volume: 1.0,
             cloud_mode: 2,
             attack_indicator: 1,
+            display_mode: 0,
         }
     }
 }
@@ -557,7 +560,7 @@ impl MainMenu {
             skin_right_pants: settings.skin_right_pants,
             skin_hat: settings.skin_hat,
             skin_main_hand_right: settings.skin_main_hand_right,
-            display_mode: DisplayMode::Windowed,
+            display_mode: DisplayMode::from_u8(settings.display_mode),
             cloud_mode: CloudMode::from_u8(settings.cloud_mode),
             attack_indicator: crate::ui::hud::AttackIndicatorMode::from_u8(
                 settings.attack_indicator,
@@ -656,8 +659,14 @@ impl MainMenu {
                 skin_main_hand_right: self.skin_main_hand_right,
                 cloud_mode: self.cloud_mode.to_u8(),
                 attack_indicator: self.attack_indicator.to_u8(),
+                display_mode: self.display_mode.to_u8(),
             },
         );
+    }
+
+    pub fn set_display_mode(&mut self, display_mode: DisplayMode) {
+        self.display_mode = display_mode;
+        self.save_settings();
     }
 
     pub fn main_hand_right(&self) -> bool {
@@ -888,5 +897,32 @@ impl MainMenu {
         self.ping_generation
             .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         self.ping_results.write().clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_mode_settings_are_backward_compatible_and_round_trip() {
+        let mut legacy = serde_json::to_value(Settings::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("display_mode");
+        let legacy: Settings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(legacy.display_mode, 0);
+
+        for mode in [
+            DisplayMode::Windowed,
+            DisplayMode::Borderless,
+            DisplayMode::Fullscreen,
+        ] {
+            let settings = Settings {
+                display_mode: mode.to_u8(),
+                ..Settings::default()
+            };
+            let json = serde_json::to_string(&settings).unwrap();
+            let loaded: Settings = serde_json::from_str(&json).unwrap();
+            assert!(DisplayMode::from_u8(loaded.display_mode) == mode);
+        }
     }
 }

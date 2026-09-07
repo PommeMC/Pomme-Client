@@ -2216,6 +2216,7 @@ pub fn update_game(
             .build(sw, sh, &menu_input, |t, s| r.menu_text_width(t, s));
         elements.extend(result.elements);
         core.input.clear_just_pressed_actions();
+        core.sync_display_mode(&gfx.window);
     } else if game.dead {
         let cursor = core.input.cursor_pos();
         let clicked = core.input.left_just_pressed() && !game.respawn_sent;

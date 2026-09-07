@@ -179,6 +179,7 @@ impl ApplicationHandler for App {
                         };
                     }
                 };
+                self.core.apply_display_mode(&window);
 
                 let mut renderer = match Renderer::new(
                     Arc::clone(&window),
@@ -290,9 +291,9 @@ impl ApplicationHandler for App {
                         && !self.core.input.key_pressed(KeyCode::F3)
                         && let PhysicalKey::Code(KeyCode::F11) = event.physical_key
                     {
-                        self.core.display_mode = self.core.display_mode.cycle();
-                        self.core.menu.display_mode = self.core.display_mode;
-                        self.core.apply_display_mode(window);
+                        let display_mode = self.core.display_mode.cycle();
+                        self.core.menu.set_display_mode(display_mode);
+                        self.core.sync_display_mode(window);
                     }
                     // F2 screenshot works in every phase, like vanilla.
                     // TODO: Ctrl+F2 panoramic screenshot
