@@ -205,13 +205,21 @@ impl MainMenu {
         input: &MenuInput,
         text_width_fn: common::TextWidthFn,
     ) -> MainMenuResult {
+        let sensitivity_label = if self.sensitivity <= 0.0 {
+            "Sensitivity: *yawn*".to_string()
+        } else if self.sensitivity >= 1.0 {
+            "Sensitivity: HYPERSPEED!!!".to_string()
+        } else {
+            format!("Sensitivity: {}%", (self.sensitivity * 200.0) as u32)
+        };
         let rows: Vec<OptRow> = vec![
-            OptRow::Pair("Sensitivity: 100%", "Invert Mouse: OFF"),
+            OptRow::Pair(&sensitivity_label, "Invert Mouse: OFF"),
             OptRow::Pair("Auto-Jump: ON", "Operator Items Tab: OFF"),
             OptRow::Pair("Key Binds...", "Mouse Settings..."),
             OptRow::Pair("Sneak: Toggle", "Sprint: Hold"),
         ];
         let nav: &[(&str, Screen)] = &[("Key Binds...", Screen::OptionsKeybinds)];
+        let sliders: &[(&str, f32)] = &[("Sensitivity:", self.sensitivity)];
         self.build_options_grid(
             sw,
             sh,
@@ -220,7 +228,7 @@ impl MainMenu {
             Screen::Options,
             &rows,
             nav,
-            &[],
+            sliders,
             true,
             &[],
             text_width_fn,
@@ -831,6 +839,7 @@ impl MainMenu {
                 }
                 "FOV:" => self.fov = (30.0 + v * 80.0).round() as u32,
                 "FOV Effects:" => self.fov_effect_scale = v,
+                "Sensitivity:" => self.sensitivity = v,
                 "Master Volume:" => self.master_volume = v,
                 "Music:" => self.music_volume = v,
                 "Jukebox/Note Blocks:" => self.jukebox_volume = v,
