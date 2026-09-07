@@ -584,15 +584,16 @@ pub fn push_slider(
     fs: f32,
     label: &str,
     value: f32,
+    enabled: bool,
     dragging: bool,
     scroll: &LabelScroll<'_>,
 ) -> SliderResult {
-    let hovered = hit_test(cursor, [x, y, w, h]);
+    let hovered = enabled && hit_test(cursor, [x, y, w, h]);
     let handle_w = 8.0 * gs;
     let track_w = w - handle_w;
     let handle_x = x + value.clamp(0.0, 1.0) * track_w;
 
-    let actively_dragging = dragging && mouse_held;
+    let actively_dragging = enabled && dragging && mouse_held;
     let start_drag = hovered && mouse_held && !dragging;
 
     let new_value = if actively_dragging || start_drag {
@@ -610,7 +611,7 @@ pub fn push_slider(
         h,
         sprite: track_sprite,
         border: BTN_BORDER * gs,
-        tint: WHITE,
+        tint: if enabled { WHITE } else { COL_DISABLED },
     });
 
     let handle_sprite = if actively_dragging || start_drag || hovered {
@@ -624,10 +625,11 @@ pub fn push_slider(
         w: handle_w,
         h,
         sprite: handle_sprite,
-        tint: WHITE,
+        tint: if enabled { WHITE } else { COL_DISABLED },
     });
 
-    push_widget_label(elements, x, y, w, h, gs, fs, label, WHITE, Some(scroll));
+    let text_col = if enabled { WHITE } else { COL_DISABLED };
+    push_widget_label(elements, x, y, w, h, gs, fs, label, text_col, Some(scroll));
 
     SliderResult {
         hovered,
