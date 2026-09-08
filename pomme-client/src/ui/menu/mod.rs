@@ -664,8 +664,8 @@ impl MainMenu {
 
     /// Per-category volumes in `SoundCategory` order
     /// (master, music, records, weather, blocks, hostile, neutral, players,
-    /// ambient, voice) for the audio engine.
-    pub fn category_volumes(&self) -> [f32; 10] {
+    /// ambient, voice, ui) for the audio engine.
+    pub fn category_volumes(&self) -> [f32; 11] {
         [
             self.master_volume,
             self.music_volume,
@@ -677,6 +677,7 @@ impl MainMenu {
             self.players_volume,
             self.ambient_volume,
             self.voice_volume,
+            self.ui_volume,
         ]
     }
 
