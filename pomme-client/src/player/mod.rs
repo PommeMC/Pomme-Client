@@ -17,6 +17,7 @@ pub const CROUCH_EYE_HEIGHT: f64 = 1.27;
 const DROWN_DAMAGE_THRESHOLD: i32 = -20;
 const DROWN_DAMAGE: f32 = 2.0;
 const AIR_RECOVERY_RATE: i32 = 4;
+const HURT_DURATION: u8 = 10;
 
 // TODO: migrate the remaining raw `game_mode == N` checks to shared constants
 // or an enum.
@@ -49,6 +50,10 @@ pub struct LocalPlayer {
     pub health: f32,
     pub absorption: f32,
     pub max_health: f32,
+    pub hurt_time: u8,
+    pub hurt_duration: u8,
+    pub hurt_dir: f32,
+    flash_on_set_health: bool,
     pub food: u32,
     pub armor: u32,
     pub saturation: f32,
@@ -114,6 +119,10 @@ impl LocalPlayer {
             health: 20.0,
             absorption: 0.0,
             max_health: 20.0,
+            hurt_time: 0,
+            hurt_duration: 0,
+            hurt_dir: 0.0,
+            flash_on_set_health: false,
             food: 20,
             armor: 0,
             saturation: 5.0,
@@ -154,6 +163,30 @@ impl LocalPlayer {
             experience_level: 0,
             experience_progress: 0.0,
             effects: crate::mob_effect::ActiveMobEffects::default(),
+        }
+    }
+
+    pub fn apply_server_health(&mut self, health: f32) {
+        if self.flash_on_set_health && health < self.health {
+            self.mark_hurt();
+        }
+        self.health = health;
+        self.flash_on_set_health = true;
+    }
+
+    pub fn mark_hurt(&mut self) {
+        self.hurt_time = HURT_DURATION;
+        self.hurt_duration = HURT_DURATION;
+    }
+
+    pub fn animate_hurt(&mut self, yaw: f32) {
+        self.mark_hurt();
+        self.hurt_dir = yaw;
+    }
+
+    pub fn tick_hurt(&mut self) {
+        if self.hurt_time > 0 {
+            self.hurt_time -= 1;
         }
     }
 
@@ -333,5 +366,67 @@ impl LocalPlayer {
     pub fn wake_up(&mut self) {
         self.sleeping_pos = None;
         self.sleep_counter = 100;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hurt_state_matches_vanilla_duration_direction_and_expiry() {
+        let mut player = LocalPlayer::new();
+
+        player.apply_server_health(16.0);
+        assert_eq!(
+            player.hurt_time, 0,
+            "first server health sync should not trigger hurt feedback"
+        );
+        player.apply_server_health(18.0);
+        assert_eq!(
+            player.hurt_time, 0,
+            "health increases should not trigger hurt feedback"
+        );
+        player.apply_server_health(17.0);
+        assert_eq!(
+            player.hurt_time, HURT_DURATION,
+            "later health decreases should trigger hurt feedback"
+        );
+        player.hurt_time = 0;
+        player.hurt_duration = 0;
+
+        player.mark_hurt();
+        assert_eq!(
+            player.hurt_time, HURT_DURATION,
+            "damage should start the full hurt timer"
+        );
+        assert_eq!(
+            player.hurt_duration, HURT_DURATION,
+            "damage should refresh the vanilla hurt duration"
+        );
+        assert_eq!(
+            player.hurt_dir, 0.0,
+            "damage events alone must not invent a direction"
+        );
+
+        player.animate_hurt(-37.5);
+        assert_eq!(
+            player.hurt_time, HURT_DURATION,
+            "hurt animation should refresh the timer"
+        );
+        assert_eq!(
+            player.hurt_dir, -37.5,
+            "hurt animation yaw should be preserved exactly"
+        );
+
+        for remaining in (0..HURT_DURATION).rev() {
+            player.tick_hurt();
+            assert_eq!(
+                player.hurt_time, remaining,
+                "hurt timer should decrement once per client tick"
+            );
+        }
+        player.tick_hurt();
+        assert_eq!(player.hurt_time, 0, "expired hurt timer must not underflow");
     }
 }

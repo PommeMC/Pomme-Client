@@ -109,6 +109,10 @@ pub struct Camera {
     bob_walk_dist: f32,
     bob_amount: f32,
     bob_enabled: bool,
+    hurt_time: u8,
+    hurt_duration: u8,
+    hurt_dir: f32,
+    damage_tilt_strength: f32,
     /// Projection far plane, scaled with render distance (vanilla
     /// `Camera.depthFar` = render distance in blocks * 4).
     depth_far: f32,
@@ -131,6 +135,10 @@ impl Camera {
             bob_walk_dist: 0.0,
             bob_amount: 0.0,
             bob_enabled: false,
+            hurt_time: 0,
+            hurt_duration: 0,
+            hurt_dir: 0.0,
+            damage_tilt_strength: 1.0,
             depth_far: MIN_FAR,
         }
     }
@@ -145,10 +153,40 @@ impl Camera {
         self.bob_enabled = enabled;
     }
 
-    /// The view-space bob transform, also applied to the first-person arm/held
-    /// item.
-    pub fn view_bob_matrix(&self) -> Mat4 {
-        self.bob_matrix()
+    pub fn set_hurt(
+        &mut self,
+        hurt_time: u8,
+        hurt_duration: u8,
+        hurt_dir: f32,
+        damage_tilt_strength: f32,
+    ) {
+        self.hurt_time = hurt_time;
+        self.hurt_duration = hurt_duration;
+        self.hurt_dir = hurt_dir;
+        self.damage_tilt_strength = damage_tilt_strength;
+    }
+
+    /// The view-space hurt and bob transforms, also applied to the first-person
+    /// arm/held item.
+    pub fn view_effect_matrix(&self) -> Mat4 {
+        self.hurt_matrix() * self.bob_matrix()
+    }
+
+    fn hurt_matrix(&self) -> Mat4 {
+        if self.hurt_duration == 0 || self.top_down.is_some() {
+            return Mat4::IDENTITY;
+        }
+        let hurt = self.hurt_time as f32 - self.render_partial_tick;
+        if hurt < 0.0 {
+            return Mat4::IDENTITY;
+        }
+        use std::f32::consts::PI;
+        let hurt = (hurt / self.hurt_duration as f32).powi(4);
+        let tilt_deg = -(hurt * PI).sin() * 14.0 * self.damage_tilt_strength;
+        let dir = self.hurt_dir.to_radians();
+        Mat4::from_rotation_y(-dir)
+            * Mat4::from_rotation_z(tilt_deg.to_radians())
+            * Mat4::from_rotation_y(dir)
     }
 
     /// Replicates vanilla `GameRenderer.bobView`. Identity when disabled, not
@@ -391,7 +429,7 @@ impl Camera {
     pub fn view_projection_with_fov(&self, fov: f32) -> Mat4 {
         let offset = self.third_person_offset();
         let (forward, up) = self.view_basis();
-        let view = self.bob_matrix() * view::look_to_mat4(offset, forward, up);
+        let view = self.view_effect_matrix() * view::look_to_mat4(offset, forward, up);
         let mut proj = proj::directx::perspective(fov, self.aspect_ratio, NEAR, self.depth_far);
         proj.y_axis.y *= -1.0; // Vulkan NDC has +Y down
         proj * view
@@ -493,6 +531,50 @@ impl CameraUniform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_mat4_close(actual: Mat4, expected: Mat4, context: &str) {
+        let actual = actual.to_cols_array();
+        let expected = expected.to_cols_array();
+        for (index, (actual, expected)) in actual.into_iter().zip(expected).enumerate() {
+            assert!(
+                (actual - expected).abs() < 1e-6,
+                "{context}: matrix element {index} was {actual}, expected {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn hurt_matrix_matches_vanilla_timing_direction_and_damage_tilt() {
+        let mut camera = Camera::new(16.0 / 9.0);
+        camera.set_render_partial_tick(0.5);
+        camera.set_hurt(6, 10, 90.0, 0.5);
+
+        let hurt = ((6.0_f32 - 0.5) / 10.0).powi(4);
+        let tilt = -(hurt * std::f32::consts::PI).sin() * 14.0 * 0.5;
+        let dir = 90.0_f32.to_radians();
+        let expected = Mat4::from_rotation_y(-dir)
+            * Mat4::from_rotation_z(tilt.to_radians())
+            * Mat4::from_rotation_y(dir);
+        assert_mat4_close(
+            camera.hurt_matrix(),
+            expected,
+            "directional half-strength hurt transform",
+        );
+
+        camera.set_hurt(6, 10, 90.0, 0.0);
+        assert_mat4_close(
+            camera.hurt_matrix(),
+            Mat4::IDENTITY,
+            "zero Damage Tilt must disable hurt-camera rotation",
+        );
+
+        camera.set_hurt(0, 10, 90.0, 1.0);
+        assert_mat4_close(
+            camera.hurt_matrix(),
+            Mat4::IDENTITY,
+            "expired hurt timing must not rotate the camera",
+        );
+    }
 
     /// The midpoint is the multiplier pomme hardcoded before the slider
     /// existed.

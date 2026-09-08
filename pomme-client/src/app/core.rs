@@ -643,7 +643,7 @@ impl AppCore {
                     food,
                     saturation,
                 } => {
-                    game.player.health = health;
+                    game.player.apply_server_health(health);
                     game.player.food = food;
                     game.player.saturation = saturation;
                     if health > 0.0 && game.dead {
@@ -1395,7 +1395,18 @@ impl AppCore {
                     game.entity_store.start_swing(id);
                 }
                 NetworkEvent::EntityDamaged { id } => {
-                    game.entity_store.mark_hurt(id);
+                    if id == game.player.entity_id {
+                        game.player.mark_hurt();
+                    } else {
+                        game.entity_store.mark_hurt(id);
+                    }
+                }
+                NetworkEvent::HurtAnimation { id, yaw } => {
+                    if id == game.player.entity_id {
+                        game.player.animate_hurt(yaw);
+                    } else {
+                        game.entity_store.mark_hurt(id);
+                    }
                 }
                 NetworkEvent::ItemPickedUp {
                     item_id,

@@ -31,6 +31,8 @@ struct Settings {
     fov: u32,
     #[serde(default = "default_fov_effect_scale")]
     fov_effect_scale: f32,
+    #[serde(default = "default_damage_tilt_strength")]
+    damage_tilt_strength: f32,
     #[serde(default = "default_sensitivity")]
     sensitivity: f32,
     #[serde(default = "default_true")]
@@ -111,6 +113,14 @@ fn default_fov_effect_scale() -> f32 {
     1.0
 }
 
+fn default_damage_tilt_strength() -> f32 {
+    1.0
+}
+
+fn validated_damage_tilt_strength(value: f32) -> f32 {
+    value.clamp(0.0, 1.0)
+}
+
 fn default_sensitivity() -> f32 {
     0.5
 }
@@ -144,6 +154,7 @@ impl Default for Settings {
             simulation_distance: 12,
             fov: 70,
             fov_effect_scale: 1.0,
+            damage_tilt_strength: 1.0,
             sensitivity: 0.5,
             view_bobbing: true,
             show_subtitles: false,
@@ -432,6 +443,7 @@ pub struct MainMenu {
     pub fov: u32,
     /// FOV Effects slider fraction (0..1); squared by `fov_effect()`.
     pub fov_effect_scale: f32,
+    pub damage_tilt_strength: f32,
     pub sensitivity: f32,
     pub view_bobbing: bool,
     pub show_subtitles: bool,
@@ -541,6 +553,7 @@ impl MainMenu {
             server_render_distance: 0,
             fov: settings.fov,
             fov_effect_scale: settings.fov_effect_scale,
+            damage_tilt_strength: validated_damage_tilt_strength(settings.damage_tilt_strength),
             // Cubed by the look curve, so an out-of-range options.json value
             // reaches infinity and leaves the look direction NaN for good.
             sensitivity: settings.sensitivity.clamp(0.0, 1.0),
@@ -641,6 +654,7 @@ impl MainMenu {
                 simulation_distance: self.simulation_distance,
                 fov: self.fov,
                 fov_effect_scale: self.fov_effect_scale,
+                damage_tilt_strength: self.damage_tilt_strength,
                 sensitivity: self.sensitivity,
                 view_bobbing: self.view_bobbing,
                 show_subtitles: self.show_subtitles,
@@ -915,6 +929,28 @@ impl MainMenu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn damage_tilt_settings_default_and_validate_to_vanilla_range() {
+        let mut legacy = serde_json::to_value(Settings::default()).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("damage_tilt_strength");
+        let legacy: Settings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(
+            legacy.damage_tilt_strength, 1.0,
+            "legacy settings should default Damage Tilt to vanilla's 100%"
+        );
+
+        for (stored, expected) in [(-0.25, 0.0), (0.35, 0.35), (1.25, 1.0)] {
+            assert_eq!(
+                validated_damage_tilt_strength(stored),
+                expected,
+                "stored Damage Tilt {stored} should validate to {expected}"
+            );
+        }
+    }
 
     #[test]
     fn display_mode_settings_are_backward_compatible_and_round_trip() {

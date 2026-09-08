@@ -280,6 +280,14 @@ impl MainMenu {
         } else {
             format!("FOV Effects: {}%", (self.fov_effect() * 100.0).round())
         };
+        let damage_tilt_label = if self.damage_tilt_strength <= 0.0 {
+            "Damage Tilt: OFF".to_string()
+        } else {
+            format!(
+                "Damage Tilt: {}%",
+                (self.damage_tilt_strength * 100.0).round()
+            )
+        };
         let rows: Vec<OptRow> = vec![
             OptRow::Pair("Narrator: OFF", self.show_subtitles_label()),
             OptRow::Pair("High Contrast: OFF", "Menu Background Blur: 50%"),
@@ -291,14 +299,17 @@ impl MainMenu {
             OptRow::Pair("Chat Delay: None", "Notification Time: 10.0s"),
             OptRow::Pair(self.view_bobbing_label(), "Distortion Effects: 100%"),
             OptRow::Pair(&fov_effect_label, "Darkness Pulsing: 100%"),
-            OptRow::Pair("Damage Tilt: 100%", "Glint Speed: 100%"),
+            OptRow::Pair(&damage_tilt_label, "Glint Speed: 100%"),
             OptRow::Pair("Glint Strength: 100%", "Hide Lightning Flashes: OFF"),
             OptRow::Pair("Dark Loading Screen: OFF", "Panorama Scroll Speed: 100%"),
             OptRow::Pair("Hide Splash Texts: OFF", "Narrator Hotkey: ON"),
             OptRow::Pair("Rotate with Minecart: OFF", "High Contrast Outlines: OFF"),
         ];
         let back = self.settings_back.clone_screen();
-        let sliders: &[(&str, f32)] = &[("FOV Effects:", self.fov_effect_scale)];
+        let sliders: &[(&str, f32)] = &[
+            ("FOV Effects:", self.fov_effect_scale),
+            ("Damage Tilt:", self.damage_tilt_strength),
+        ];
         self.build_options_grid(
             sw,
             sh,
@@ -839,6 +850,7 @@ impl MainMenu {
                 }
                 "FOV:" => self.fov = (30.0 + v * 80.0).round() as u32,
                 "FOV Effects:" => self.fov_effect_scale = v,
+                "Damage Tilt:" => self.damage_tilt_strength = v,
                 "Sensitivity:" => self.sensitivity = v,
                 "Master Volume:" => self.master_volume = v,
                 "Music:" => self.music_volume = v,
