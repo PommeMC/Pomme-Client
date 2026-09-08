@@ -239,6 +239,10 @@ mod tests {
             Some(47)
         );
         assert_eq!(
+            t.id(Phase::Game, Direction::Clientbound, "hurt_animation"),
+            Some(42)
+        );
+        assert_eq!(
             t.id(Phase::Game, Direction::Clientbound, "remove_mob_effect"),
             Some(0x4E)
         );

@@ -117,7 +117,9 @@ fn default_damage_tilt_strength() -> f32 {
     1.0
 }
 
-fn validated_damage_tilt_strength(value: f32) -> f32 {
+/// Vanilla's `OptionInstance.UnitDouble` range, for sliders an out-of-range
+/// options.json would otherwise feed straight into a render or input curve.
+fn unit_range(value: f32) -> f32 {
     value.clamp(0.0, 1.0)
 }
 
@@ -553,10 +555,10 @@ impl MainMenu {
             server_render_distance: 0,
             fov: settings.fov,
             fov_effect_scale: settings.fov_effect_scale,
-            damage_tilt_strength: validated_damage_tilt_strength(settings.damage_tilt_strength),
-            // Cubed by the look curve, so an out-of-range options.json value
-            // reaches infinity and leaves the look direction NaN for good.
-            sensitivity: settings.sensitivity.clamp(0.0, 1.0),
+            damage_tilt_strength: unit_range(settings.damage_tilt_strength),
+            // Cubed by the look curve, so an out-of-range value reaches
+            // infinity and leaves the look direction NaN for good.
+            sensitivity: unit_range(settings.sensitivity),
             view_bobbing: settings.view_bobbing,
             show_subtitles: settings.show_subtitles,
             show_autosave_indicator: settings.show_autosave_indicator,
@@ -931,7 +933,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn damage_tilt_settings_default_and_validate_to_vanilla_range() {
+    fn damage_tilt_defaults_to_full_strength_and_clamps_to_unit_range() {
         let mut legacy = serde_json::to_value(Settings::default()).unwrap();
         legacy
             .as_object_mut()
@@ -945,9 +947,9 @@ mod tests {
 
         for (stored, expected) in [(-0.25, 0.0), (0.35, 0.35), (1.25, 1.0)] {
             assert_eq!(
-                validated_damage_tilt_strength(stored),
+                unit_range(stored),
                 expected,
-                "stored Damage Tilt {stored} should validate to {expected}"
+                "stored slider value {stored} should clamp to {expected}"
             );
         }
     }

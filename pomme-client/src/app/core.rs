@@ -77,6 +77,18 @@ fn apply_server_block(
     );
 }
 
+/// Starts an entity's hurt animation, with a direction for the packets that
+/// carry one. The local player lives outside the entity store.
+fn hurt_entity(game: &mut GameState, id: i32, dir: Option<f32>) {
+    if id != game.player.entity_id {
+        game.entity_store.mark_hurt(id);
+    } else if let Some(yaw) = dir {
+        game.player.animate_hurt(yaw);
+    } else {
+        game.player.mark_hurt();
+    }
+}
+
 /// Queues a column's packet light for the per-tick apply. Chunk loads enable
 /// the column, standalone light updates are corrections.
 fn queue_light_apply(
@@ -508,6 +520,7 @@ impl AppCore {
                     game.riding_vehicle_id = None;
                     game.player.jump_riding_ticks = 0;
                     game.player.jump_riding_scale = 0.0;
+                    game.player.reset_hurt_state();
 
                     renderer.clear_chunk_meshes();
                     game.mesh_dispatcher =
@@ -1394,20 +1407,8 @@ impl AppCore {
                 NetworkEvent::EntitySwing { id } => {
                     game.entity_store.start_swing(id);
                 }
-                NetworkEvent::EntityDamaged { id } => {
-                    if id == game.player.entity_id {
-                        game.player.mark_hurt();
-                    } else {
-                        game.entity_store.mark_hurt(id);
-                    }
-                }
-                NetworkEvent::HurtAnimation { id, yaw } => {
-                    if id == game.player.entity_id {
-                        game.player.animate_hurt(yaw);
-                    } else {
-                        game.entity_store.mark_hurt(id);
-                    }
-                }
+                NetworkEvent::EntityDamaged { id } => hurt_entity(game, id, None),
+                NetworkEvent::HurtAnimation { id, yaw } => hurt_entity(game, id, Some(yaw)),
                 NetworkEvent::ItemPickedUp {
                     item_id,
                     collector_id,

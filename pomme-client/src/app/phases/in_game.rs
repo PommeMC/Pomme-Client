@@ -1637,7 +1637,6 @@ pub fn update_game(
     gfx.renderer.set_render_partial_tick(partial_tick);
     gfx.renderer.set_hurt(
         game.player.hurt_time,
-        game.player.hurt_duration,
         game.player.hurt_dir,
         core.menu.damage_tilt_strength,
     );

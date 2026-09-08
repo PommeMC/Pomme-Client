@@ -2,6 +2,7 @@ use glam::camera::rh::{proj, view};
 use glam::{DVec3, FloatExt, Mat4, Vec3};
 
 use crate::app::input::InputState;
+use crate::entity::HURT_DURATION;
 use crate::entity::components::{LookDirection, Position};
 
 const UP: Vec3 = Vec3::Y;
@@ -110,7 +111,6 @@ pub struct Camera {
     bob_amount: f32,
     bob_enabled: bool,
     hurt_time: u8,
-    hurt_duration: u8,
     hurt_dir: f32,
     damage_tilt_strength: f32,
     /// Projection far plane, scaled with render distance (vanilla
@@ -136,7 +136,6 @@ impl Camera {
             bob_amount: 0.0,
             bob_enabled: false,
             hurt_time: 0,
-            hurt_duration: 0,
             hurt_dir: 0.0,
             damage_tilt_strength: 1.0,
             depth_far: MIN_FAR,
@@ -153,15 +152,8 @@ impl Camera {
         self.bob_enabled = enabled;
     }
 
-    pub fn set_hurt(
-        &mut self,
-        hurt_time: u8,
-        hurt_duration: u8,
-        hurt_dir: f32,
-        damage_tilt_strength: f32,
-    ) {
+    pub fn set_hurt(&mut self, hurt_time: u8, hurt_dir: f32, damage_tilt_strength: f32) {
         self.hurt_time = hurt_time;
-        self.hurt_duration = hurt_duration;
         self.hurt_dir = hurt_dir;
         self.damage_tilt_strength = damage_tilt_strength;
     }
@@ -172,8 +164,12 @@ impl Camera {
         self.hurt_matrix() * self.bob_matrix()
     }
 
+    /// Replicates vanilla `GameRenderer.bobHurt`.
+    ///
+    /// TODO: `bobHurt` also rolls the camera while dying, before this timing
+    /// check; that needs a death-animation timer pomme does not track yet.
     fn hurt_matrix(&self) -> Mat4 {
-        if self.hurt_duration == 0 || self.top_down.is_some() {
+        if self.top_down.is_some() {
             return Mat4::IDENTITY;
         }
         let hurt = self.hurt_time as f32 - self.render_partial_tick;
@@ -181,7 +177,7 @@ impl Camera {
             return Mat4::IDENTITY;
         }
         use std::f32::consts::PI;
-        let hurt = (hurt / self.hurt_duration as f32).powi(4);
+        let hurt = (hurt / HURT_DURATION as f32).powi(4);
         let tilt_deg = -(hurt * PI).sin() * 14.0 * self.damage_tilt_strength;
         let dir = self.hurt_dir.to_radians();
         Mat4::from_rotation_y(-dir)
@@ -547,9 +543,9 @@ mod tests {
     fn hurt_matrix_matches_vanilla_timing_direction_and_damage_tilt() {
         let mut camera = Camera::new(16.0 / 9.0);
         camera.set_render_partial_tick(0.5);
-        camera.set_hurt(6, 10, 90.0, 0.5);
+        camera.set_hurt(6, 90.0, 0.5);
 
-        let hurt = ((6.0_f32 - 0.5) / 10.0).powi(4);
+        let hurt = ((6.0_f32 - 0.5) / HURT_DURATION as f32).powi(4);
         let tilt = -(hurt * std::f32::consts::PI).sin() * 14.0 * 0.5;
         let dir = 90.0_f32.to_radians();
         let expected = Mat4::from_rotation_y(-dir)
@@ -561,14 +557,14 @@ mod tests {
             "directional half-strength hurt transform",
         );
 
-        camera.set_hurt(6, 10, 90.0, 0.0);
+        camera.set_hurt(6, 90.0, 0.0);
         assert_mat4_close(
             camera.hurt_matrix(),
             Mat4::IDENTITY,
             "zero Damage Tilt must disable hurt-camera rotation",
         );
 
-        camera.set_hurt(0, 10, 90.0, 1.0);
+        camera.set_hurt(0, 90.0, 1.0);
         assert_mat4_close(
             camera.hurt_matrix(),
             Mat4::IDENTITY,

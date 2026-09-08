@@ -775,15 +775,9 @@ impl Renderer {
         self.camera.set_view_bob(walk_dist, bob, enabled);
     }
 
-    pub fn set_hurt(
-        &mut self,
-        hurt_time: u8,
-        hurt_duration: u8,
-        hurt_dir: f32,
-        damage_tilt_strength: f32,
-    ) {
+    pub fn set_hurt(&mut self, hurt_time: u8, hurt_dir: f32, damage_tilt_strength: f32) {
         self.camera
-            .set_hurt(hurt_time, hurt_duration, hurt_dir, damage_tilt_strength);
+            .set_hurt(hurt_time, hurt_dir, damage_tilt_strength);
     }
 
     pub fn reset_camera(&mut self, position: Position, look_dir: LookDirection) {
