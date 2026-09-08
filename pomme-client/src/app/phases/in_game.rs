@@ -2207,7 +2207,7 @@ pub fn update_game(
 
     if game.options_from_game {
         core.menu.server_render_distance = game.server_render_distance;
-        let mut menu_input = core.build_menu_input();
+        let mut menu_input = core.build_menu_input(dt);
         // Chat consumed the enter/tab latches earlier this frame; hand them on.
         menu_input.enter = enter;
         menu_input.tab = tab;

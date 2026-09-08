@@ -716,3 +716,126 @@ pub(super) fn emit_transition_strips(
         });
     }
 }
+
+/// Tile pitch of the menu backdrop, in GUI units.
+pub(super) const MENU_BG_TILE: f32 = 32.0;
+
+/// The dimmed tiled backdrop drawn behind menu content regions.
+pub(super) fn push_menu_backdrop(
+    elements: &mut Vec<MenuElement>,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    gs: f32,
+) {
+    elements.push(MenuElement::TiledImage {
+        x,
+        y,
+        w,
+        h,
+        sprite: SpriteId::MenuBackground,
+        tile_size: MENU_BG_TILE * gs,
+        tint: [0.25, 0.25, 0.25, 1.0],
+    });
+    elements.push(MenuElement::Rect {
+        x,
+        y,
+        w,
+        h,
+        corner_radius: 0.0,
+        color: [0.0, 0.0, 0.0, 0.3],
+    });
+}
+
+/// Vertical bounds of a header/footer screen, in framebuffer pixels.
+pub(super) struct ChromeLayout {
+    pub header_h: f32,
+    pub content_top: f32,
+    pub content_bottom: f32,
+    pub done_y: f32,
+}
+
+/// Draws the shared header/footer frame: a dimmed tiled background between two
+/// separators, with the title centered in the header.
+pub(super) fn push_screen_chrome(
+    elements: &mut Vec<MenuElement>,
+    sw: f32,
+    sh: f32,
+    gs: f32,
+    title: &str,
+) -> ChromeLayout {
+    let fs = common::FONT_SIZE * gs;
+    let cx = sw / 2.0;
+    let header_h = HEADER_FOOTER_H * gs;
+    let footer_h = HEADER_FOOTER_H * gs;
+    let sep_h = 2.0 * gs;
+    let content_top = header_h + sep_h;
+    let content_bottom = sh - footer_h - sep_h;
+
+    push_menu_backdrop(
+        elements,
+        0.0,
+        content_top,
+        sw,
+        content_bottom - content_top,
+        gs,
+    );
+    elements.push(MenuElement::Text {
+        x: cx,
+        y: (header_h - fs) / 2.0,
+        text: title.into(),
+        scale: fs,
+        color: WHITE,
+        centered: true,
+    });
+    elements.push(MenuElement::Image {
+        x: 0.0,
+        y: header_h,
+        w: sw,
+        h: sep_h,
+        sprite: SpriteId::HeaderSeparator,
+        tint: WHITE,
+    });
+    elements.push(MenuElement::Image {
+        x: 0.0,
+        y: content_bottom,
+        w: sw,
+        h: sep_h,
+        sprite: SpriteId::FooterSeparator,
+        tint: WHITE,
+    });
+    ChromeLayout {
+        header_h,
+        content_top,
+        content_bottom,
+        done_y: sh - footer_h + (footer_h - common::BTN_H * gs) / 2.0,
+    }
+}
+
+/// The 200-wide Done button vanilla centres in a header/footer screen's footer.
+pub(super) fn push_done_button(
+    elements: &mut Vec<MenuElement>,
+    ctx: &mut FocusCtx,
+    any_hovered: &mut bool,
+    input: &MenuInput,
+    chrome: &ChromeLayout,
+    cx: f32,
+    gs: f32,
+) -> bool {
+    let w = 200.0 * gs;
+    push_button_f(
+        elements,
+        ctx,
+        any_hovered,
+        input.cursor,
+        input.clicked,
+        cx - w / 2.0,
+        chrome.done_y,
+        w,
+        common::BTN_H * gs,
+        gs,
+        "Done",
+        true,
+    )
+}
