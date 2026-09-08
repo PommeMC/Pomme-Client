@@ -47,6 +47,7 @@ pub struct LocalPlayer {
     pub prev_look_dir: LookDirection,
     pub on_ground: bool,
     pub health: f32,
+    pub death_time: u32,
     pub absorption: f32,
     pub max_health: f32,
     pub food: u32,
@@ -112,6 +113,7 @@ impl LocalPlayer {
             prev_look_dir: LookDirection::default(),
             on_ground: false,
             health: 20.0,
+            death_time: 0,
             absorption: 0.0,
             max_health: 20.0,
             food: 20,
@@ -157,6 +159,20 @@ impl LocalPlayer {
         }
     }
 
+    pub fn reset_death_time(&mut self) {
+        self.death_time = 0;
+    }
+
+    pub fn snapshot_render_state(&mut self) {
+        self.prev_position = self.position;
+        self.prev_look_dir = self.look_dir;
+        self.prev_eye_height = self.eye_height;
+    }
+
+    pub fn tick_death(&mut self) {
+        self.death_time = self.death_time.wrapping_add(1);
+    }
+
     pub fn height(&self) -> f64 {
         if self.crouching {
             CROUCH_HEIGHT
@@ -179,14 +195,13 @@ impl LocalPlayer {
     }
 
     /// Accumulates walk distance and a smoothed bob amplitude for view bobbing,
-    /// mirroring vanilla `AbstractClientPlayer.updateBob` (caller skips this
-    /// when dead).
-    pub fn tick_bob(&mut self, dx: f64, dz: f64) {
+    /// mirroring vanilla `AbstractClientPlayer.updateBob`.
+    pub fn tick_bob(&mut self, dx: f64, dz: f64, dead: bool) {
         self.prev_walk_dist = self.walk_dist;
         // Vanilla LocalPlayer.move: addWalkedDistance(len * 0.6).
         self.walk_dist += dvec2(dx, dz).length() as f32 * 0.6;
         // updateBob's target is horizontal speed, not the walk delta.
-        let target = if self.on_ground && !self.swimming {
+        let target = if !dead && self.on_ground && !self.swimming {
             (dvec2(self.velocity.x, self.velocity.z).length() as f32).min(0.1)
         } else {
             0.0
@@ -333,5 +348,66 @@ impl LocalPlayer {
     pub fn wake_up(&mut self) {
         self.sleeping_pos = None;
         self.sleep_counter = 100;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dead_bob_advances_previous_state_and_decays() {
+        let mut player = LocalPlayer::new();
+        player.walk_dist = 3.25;
+        player.prev_walk_dist = 2.75;
+        player.bob = 0.1;
+        player.prev_bob = 0.04;
+        player.velocity = crate::entity::components::Velocity::new(0.2, 0.0, 0.0);
+        player.on_ground = true;
+
+        player.tick_bob(0.0, 0.0, true);
+
+        assert_eq!(
+            player.prev_walk_dist, 3.25,
+            "dead ticks must advance the walk interpolation endpoint"
+        );
+        assert_eq!(
+            player.walk_dist, 3.25,
+            "dead ticks must not add walked distance"
+        );
+        assert_eq!(
+            player.prev_bob, 0.1,
+            "dead ticks must advance the bob interpolation endpoint"
+        );
+        assert!(
+            (player.bob - 0.06).abs() < 1e-6,
+            "vanilla dead-player bob decays 40% toward zero per tick"
+        );
+    }
+
+    #[test]
+    fn snapshot_render_state_clears_stale_interpolation_endpoints() {
+        let mut player = LocalPlayer::new();
+        player.position = dvec3(10.0, 64.0, -3.0).into();
+        player.prev_position = dvec3(9.5, 63.8, -3.0).into();
+        player.look_dir = LookDirection::new(35.0, -12.0);
+        player.prev_look_dir = LookDirection::new(5.0, 8.0);
+        player.eye_height = 1.4;
+        player.prev_eye_height = 1.62;
+
+        player.snapshot_render_state();
+
+        assert_eq!(
+            player.prev_position, player.position,
+            "position interpolation must not replay a prior tick"
+        );
+        assert_eq!(
+            player.prev_look_dir, player.look_dir,
+            "look interpolation must start from the current tick state"
+        );
+        assert_eq!(
+            player.prev_eye_height, player.eye_height,
+            "eye interpolation must not reuse stale state"
+        );
     }
 }

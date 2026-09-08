@@ -18,6 +18,20 @@ pub(crate) const MIN_FAR: f32 = 1000.0;
 const CONTROLLER_SENSITIVITY: f32 = 150.0;
 pub const THIRD_PERSON_DISTANCE: f32 = 4.0;
 
+fn death_duration(death_time: f32) -> f32 {
+    death_time.clamp(0.0, 20.0)
+}
+
+fn death_roll_degrees(death_time: f32) -> f32 {
+    let duration = death_duration(death_time);
+    40.0 - 8000.0 / (duration + 200.0)
+}
+
+fn death_fov_divisor(death_time: f32) -> f32 {
+    let duration = death_duration(death_time);
+    (1.0 - 500.0 / (duration + 500.0)) * 2.0 + 1.0
+}
+
 /// Vanilla mouse sensitivity curve from `MouseHandler.turnPlayer`, including
 /// the 0.15 turn scale applied by `Entity.turn`.
 ///
@@ -101,9 +115,9 @@ pub struct Camera {
     pub base_fov_degrees: f32,
     fov_modifier: f32,
     old_fov_modifier: f32,
-    /// Unsmoothed multiplier for the death/fluid FOV effect (vanilla
-    /// `modifyFovBasedOnDeathOrFluid`). 1.0 = no effect.
+    /// Unsmoothed fluid multiplier from vanilla `modifyFovBasedOnDeathOrFluid`.
     fluid_fov_factor: f32,
+    death_time: f32,
     /// Render-frame partial tick used to interpolate `fov_modifier` per frame.
     render_partial_tick: f32,
     bob_walk_dist: f32,
@@ -127,6 +141,7 @@ impl Camera {
             fov_modifier: 1.0,
             old_fov_modifier: 1.0,
             fluid_fov_factor: 1.0,
+            death_time: 0.0,
             render_partial_tick: 1.0,
             bob_walk_dist: 0.0,
             bob_amount: 0.0,
@@ -148,7 +163,18 @@ impl Camera {
     /// The view-space bob transform, also applied to the first-person arm/held
     /// item.
     pub fn view_bob_matrix(&self) -> Mat4 {
-        self.bob_matrix()
+        self.camera_effect_matrix()
+    }
+
+    fn death_matrix(&self) -> Mat4 {
+        if self.death_time <= 0.0 || self.top_down.is_some() {
+            return Mat4::IDENTITY;
+        }
+        Mat4::from_rotation_z(death_roll_degrees(self.death_time).to_radians())
+    }
+
+    fn camera_effect_matrix(&self) -> Mat4 {
+        self.death_matrix() * self.bob_matrix()
     }
 
     /// Replicates vanilla `GameRenderer.bobView`. Identity when disabled, not
@@ -227,13 +253,21 @@ impl Camera {
         self.fluid_fov_factor = factor;
     }
 
+    pub fn set_death_time(&mut self, death_time: f32) {
+        self.death_time = death_time.max(0.0);
+    }
+
     pub fn set_render_partial_tick(&mut self, partial_tick: f32) {
         self.render_partial_tick = partial_tick;
     }
 
     pub fn fov_radians(&self, partial_tick: f32) -> f32 {
         let modifier = self.old_fov_modifier.lerp(self.fov_modifier, partial_tick);
-        (self.base_fov_degrees * modifier * self.fluid_fov_factor).to_radians()
+        let mut fov = self.base_fov_degrees * modifier;
+        if self.death_time > 0.0 {
+            fov /= death_fov_divisor(self.death_time);
+        }
+        (fov * self.fluid_fov_factor).to_radians()
     }
 
     pub fn frustum_planes(&self) -> [[f32; 4]; 6] {
@@ -391,7 +425,7 @@ impl Camera {
     pub fn view_projection_with_fov(&self, fov: f32) -> Mat4 {
         let offset = self.third_person_offset();
         let (forward, up) = self.view_basis();
-        let view = self.bob_matrix() * view::look_to_mat4(offset, forward, up);
+        let view = self.camera_effect_matrix() * view::look_to_mat4(offset, forward, up);
         let mut proj = proj::directx::perspective(fov, self.aspect_ratio, NEAR, self.depth_far);
         proj.y_axis.y *= -1.0; // Vulkan NDC has +Y down
         proj * view
@@ -493,6 +527,40 @@ impl CameraUniform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fov_modifier_tick_keeps_render_boundary_continuous() {
+        let mut camera = Camera::new(16.0 / 9.0);
+        camera.old_fov_modifier = 1.0;
+        camera.fov_modifier = 1.2;
+        let previous_tick_end = camera.fov_radians(1.0);
+
+        camera.update_fov_modifier(1.0);
+
+        assert!(
+            (camera.fov_radians(0.0) - previous_tick_end).abs() < 1e-6,
+            "advancing old_fov_modifier each tick must keep FOV continuous when partial_tick resets"
+        );
+    }
+
+    #[test]
+    fn death_camera_effects_match_vanilla_boundaries() {
+        assert_eq!(death_roll_degrees(0.0), 0.0);
+        assert!((death_roll_degrees(20.0) - (40.0 - 8000.0 / 220.0)).abs() < 1e-6);
+        assert_eq!(
+            death_roll_degrees(200.0),
+            death_roll_degrees(20.0),
+            "death roll clamps at 20 ticks"
+        );
+
+        assert_eq!(death_fov_divisor(0.0), 1.0);
+        assert!((death_fov_divisor(20.0) - ((1.0 - 500.0 / 520.0) * 2.0 + 1.0)).abs() < 1e-6);
+        assert_eq!(
+            death_fov_divisor(200.0),
+            death_fov_divisor(20.0),
+            "death FOV clamps at 20 ticks"
+        );
+    }
 
     /// The midpoint is the multiplier pomme hardcoded before the slider
     /// existed.

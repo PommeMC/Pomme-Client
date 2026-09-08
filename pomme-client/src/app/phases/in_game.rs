@@ -1634,6 +1634,11 @@ pub fn update_game(
     );
     // Per-frame FOV interpolation; set before the frustum/view-projection reads.
     gfx.renderer.set_render_partial_tick(partial_tick);
+    gfx.renderer.set_death_time(if game.dead {
+        game.player.death_time as f32 + partial_tick
+    } else {
+        0.0
+    });
     // Plain lerp (vanilla getInterpolatedWalkDistance); the forward-extrapolating
     // camera variant judders across tick boundaries when per-tick speed varies.
     let bob_walk = game
@@ -2597,7 +2602,12 @@ pub fn update_game(
                     is_unhappy: e.unhappy_counter > 0,
                     head_y_offset: extras.head_y_offset,
                     head_x_rot_deg_override: extras.head_x_rot_deg_override,
-                    has_red_overlay: e.hurt_time > 0,
+                    has_red_overlay: e.hurt_time > 0 || e.death_time > 0,
+                    death_time: if e.death_time > 0 {
+                        e.death_time as f32 + partial_tick
+                    } else {
+                        0.0
+                    },
                     aggressive: e.aggressive,
                     flap: extras.flap,
                     flap_speed: extras.flap_speed,
@@ -2661,6 +2671,12 @@ pub fn update_game(
                 .min(1.0),
             entity_kind: EntityKind::Player,
             player_uuid: Some(core.user.uuid),
+            has_red_overlay: game.player.death_time > 0,
+            death_time: if game.player.death_time > 0 {
+                game.player.death_time as f32 + partial_tick
+            } else {
+                0.0
+            },
             skip_cull: true,
             ..Default::default()
         });

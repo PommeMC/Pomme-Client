@@ -99,6 +99,14 @@ const HURT_DURATION: u8 = 10;
 /// (`LivingEntity.getCurrentSwingDuration`).
 const SWING_DURATION: u8 = 6;
 
+fn tick_death_time(health: f32, death_time: &mut u32) {
+    if health <= 0.0 {
+        *death_time = death_time.wrapping_add(1);
+    } else {
+        *death_time = 0;
+    }
+}
+
 #[allow(dead_code)]
 pub struct LivingEntity {
     pub position: Position,
@@ -212,6 +220,7 @@ pub struct LivingEntity {
     pub eat_anim_tick: u8,
     pub prev_eat_anim_tick: u8,
     pub hurt_time: u8,
+    pub death_time: u32,
     pub age_in_ticks: u32,
     pub custom_name: Option<String>,
     /// Mob is targeting/attacking (metadata mob-flags bit 0x04). Raises
@@ -348,6 +357,7 @@ impl LivingEntity {
             eat_anim_tick: 0,
             prev_eat_anim_tick: 0,
             hurt_time: 0,
+            death_time: 0,
             age_in_ticks: 0,
             custom_name: None,
             aggressive: false,
@@ -1209,6 +1219,15 @@ impl EntityStore {
         }
     }
 
+    pub fn mark_dead(&mut self, id: i32) {
+        if let Some(entity) = self.living.get_mut(&id)
+            && entity.entity_type != EntityKind::Player
+        {
+            entity.health = 0.0;
+            entity.death_time = 0;
+        }
+    }
+
     /// Mirrors vanilla `LivingEntity.handleDamageEvent`: `hurtTime = 10`.
     pub fn mark_hurt(&mut self, id: i32) {
         if let Some(entity) = self.living.get_mut(&id) {
@@ -1348,6 +1367,7 @@ impl EntityStore {
             if entity.hurt_time > 0 {
                 entity.hurt_time -= 1;
             }
+            tick_death_time(entity.health, &mut entity.death_time);
             if entity.swing_time > 0 {
                 entity.swing_time -= 1;
             }
@@ -1454,6 +1474,57 @@ fn probes_water(kind: &EntityKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn death_clock_tracks_health_boundary_and_recovery() {
+        let mut death_time = 7;
+        tick_death_time(0.01, &mut death_time);
+        assert_eq!(
+            death_time, 0,
+            "positive health must clear a stale death clock"
+        );
+
+        tick_death_time(0.0, &mut death_time);
+        assert_eq!(death_time, 1, "zero health starts the death clock");
+        tick_death_time(-1.0, &mut death_time);
+        assert_eq!(
+            death_time, 2,
+            "non-positive health keeps advancing the death clock"
+        );
+    }
+
+    #[test]
+    fn death_event_forces_mobs_but_not_players_to_zero_health() {
+        let mut store = EntityStore::new();
+        store.spawn_living(
+            1,
+            EntityKind::Zombie,
+            Position::default(),
+            LookDirection::default(),
+            0.0,
+            None,
+        );
+        store.spawn_living(
+            2,
+            EntityKind::Player,
+            Position::default(),
+            LookDirection::default(),
+            0.0,
+            None,
+        );
+
+        store.mark_dead(1);
+        store.mark_dead(2);
+
+        assert_eq!(
+            store.living[&1].health, 0.0,
+            "vanilla event 3 kills non-player living entities client-side"
+        );
+        assert_eq!(
+            store.living[&2].health, 20.0,
+            "vanilla event 3 does not set player health client-side"
+        );
+    }
 
     #[test]
     fn player_index_normalization() {

@@ -648,9 +648,11 @@ impl AppCore {
                     game.player.saturation = saturation;
                     if health > 0.0 && game.dead {
                         game.dead = false;
+                        game.player.reset_death_time();
                         self.apply_cursor_grab(window, Some(game));
                     } else if health <= 0.0 && !game.dead {
                         game.dead = true;
+                        game.player.reset_death_time();
                         game.death_message = String::new();
                         game.death_instant = Instant::now();
                         game.death_confirm = false;
@@ -1397,6 +1399,9 @@ impl AppCore {
                 NetworkEvent::EntityDamaged { id } => {
                     game.entity_store.mark_hurt(id);
                 }
+                NetworkEvent::EntityDied { id } => {
+                    game.entity_store.mark_dead(id);
+                }
                 NetworkEvent::ItemPickedUp {
                     item_id,
                     collector_id,
@@ -1459,6 +1464,9 @@ impl AppCore {
                     }
                 }
                 NetworkEvent::PlayerDied { message } => {
+                    if !game.dead {
+                        game.player.reset_death_time();
+                    }
                     game.dead = true;
                     game.death_message = message;
                     game.death_instant = Instant::now();
@@ -1614,7 +1622,24 @@ impl AppCore {
         connection: &ConnectionHandle,
         game: &mut GameState,
     ) {
+        // Vanilla advances camera FOV interpolation every camera tick, including
+        // while the local player is dead. Do this before the dead-player return so
+        // a stale old/current modifier pair is never replayed each render tick.
+        renderer.set_base_fov(self.menu.fov as f32);
+        let fov_effect_scale = self.menu.fov_effect();
+        renderer.update_fov_mod(compute_fov_modifier(&game.player, fov_effect_scale));
+        renderer.set_fluid_fov_factor(if game.player.eyes_in_water {
+            1.0_f32.lerp(0.857_142_87, fov_effect_scale)
+        } else {
+            1.0
+        });
+
+        // Vanilla ClientLevel snapshots old entity transform before every tick,
+        // including dead-player ticks. Keep render interpolation on that lifecycle.
+        game.player.snapshot_render_state();
         if game.dead {
+            game.player.tick_death();
+            game.player.tick_bob(0.0, 0.0, true);
             // Q/F presses queued while dead must not fire on respawn.
             self.input.clear_click_counts();
             return;
@@ -1719,10 +1744,8 @@ impl AppCore {
             game.player.jump_riding_scale = 0.0;
         }
 
-        game.player.prev_look_dir = game.player.look_dir;
         game.player.look_dir = renderer.camera_look_dir();
 
-        game.player.prev_position = game.player.position;
         if game.chunk_load_bench.is_some() {
             game.player.velocity = crate::entity::components::Velocity::new(0.0, 0.0, 0.0);
         }
@@ -1744,18 +1767,7 @@ impl AppCore {
             &mut game.player_walk_speed,
             &mut game.player_prev_walk_speed,
         );
-        game.player.tick_bob(dx, dz);
-
-        renderer.set_base_fov(self.menu.fov as f32);
-        let fov_effect_scale = self.menu.fov_effect();
-        renderer.update_fov_mod(compute_fov_modifier(&game.player, fov_effect_scale));
-        // Vanilla modifyFovBasedOnDeathOrFluid: narrow FOV underwater, unsmoothed.
-        // TODO: lava camera fluid (no eyes_in_lava) and the death-animation factor.
-        renderer.set_fluid_fov_factor(if game.player.eyes_in_water {
-            1.0_f32.lerp(0.857_142_87, fov_effect_scale)
-        } else {
-            1.0
-        });
+        game.player.tick_bob(dx, dz, false);
 
         Self::send_abilities_packet(connection, game);
         Self::send_input_packet(input, connection, game);

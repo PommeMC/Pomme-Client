@@ -442,6 +442,9 @@ pub enum NetworkEvent {
     EntityDamaged {
         id: i32,
     },
+    EntityDied {
+        id: i32,
+    },
     ItemPickedUp {
         item_id: i32,
         collector_id: i32,

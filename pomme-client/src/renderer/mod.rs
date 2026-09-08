@@ -848,6 +848,10 @@ impl Renderer {
         self.camera.set_fluid_fov_factor(factor);
     }
 
+    pub fn set_death_time(&mut self, death_time: f32) {
+        self.camera.set_death_time(death_time);
+    }
+
     pub fn set_render_partial_tick(&mut self, partial_tick: f32) {
         self.camera.set_render_partial_tick(partial_tick);
     }

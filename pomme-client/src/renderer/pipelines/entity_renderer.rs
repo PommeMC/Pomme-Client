@@ -16,6 +16,13 @@ use crate::renderer::{MAX_FRAMES_IN_FLIGHT, entity_model, shader, util};
 
 pub const MAX_OVERLAYS: usize = 4;
 
+fn death_fall_degrees(death_time: f32) -> f32 {
+    if death_time <= 0.0 {
+        return 0.0;
+    }
+    (((death_time - 1.0) / 20.0 * 1.6).sqrt()).min(1.0) * 90.0
+}
+
 /// Per-frame instance buffer capacity, in (entity, part) draws. Far above any
 /// realistic on-screen entity count; excess is dropped with a warning.
 const MAX_INSTANCES: usize = 16384;
@@ -52,6 +59,7 @@ pub struct EntityRenderInfo {
     pub head_y_offset: f32,
     pub head_x_rot_deg_override: Option<f32>,
     pub has_red_overlay: bool,
+    pub death_time: f32,
     /// Mob is targeting/attacking — raises zombie/skeleton arms.
     pub aggressive: bool,
     /// Chicken wing-flap phase and 0..1 amplitude, interpolated.
@@ -136,6 +144,7 @@ impl Default for EntityRenderInfo {
             head_y_offset: 0.0,
             head_x_rot_deg_override: None,
             has_red_overlay: false,
+            death_time: 0.0,
             aggressive: false,
             flap: 0.0,
             flap_speed: 0.0,
@@ -1760,8 +1769,11 @@ impl EntityRenderer {
             // with the body like vanilla.
             body_y_rot_deg += (info.age_in_ticks.floor() * 3.25).cos() * std::f32::consts::PI * 0.4;
         }
-        let base = glam::Mat4::from_translation((*info.position - anchor).as_vec3())
+        let mut base = glam::Mat4::from_translation((*info.position - anchor).as_vec3())
             * glam::Mat4::from_rotation_y((180.0 - body_y_rot_deg).to_radians());
+        if info.death_time > 0.0 {
+            base *= glam::Mat4::from_rotation_z(death_fall_degrees(info.death_time).to_radians());
+        }
         // body_transform sits before the parts (whose root transforms carry
         // the convention's X flip), matching vanilla's setupRotations order.
         info.body_transform.map_or(base, |m| base * m)
@@ -2777,6 +2789,16 @@ pub(super) fn create_pipeline(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn death_fall_matches_vanilla_boundaries() {
+        assert_eq!(super::death_fall_degrees(0.0), 0.0);
+        assert_eq!(super::death_fall_degrees(1.0), 0.0);
+        assert!((super::death_fall_degrees(6.0) - (0.4_f32.sqrt() * 90.0)).abs() < 1e-5);
+        assert_eq!(super::death_fall_degrees(20.0), 90.0);
+        assert_eq!(super::death_fall_degrees(200.0), 90.0);
+    }
+
     /// Bakes every mob model; `generate_cube_vertices`' UV seam
     /// `debug_assert!` fires for any mesh that straddles its sheet.
     #[test]

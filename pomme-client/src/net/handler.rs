@@ -830,6 +830,10 @@ pub fn handle_game_packet(
                 }
             }
         }
+        // Event id 3 = living entity death.
+        ClientboundGamePacket::EntityEvent(p) if p.event_id == 3 => {
+            let _ = event_tx.try_send(NetworkEvent::EntityDied { id: p.entity_id.0 });
+        }
         // Event id 9 = finished using an item (vanilla `completeUsingItem`).
         ClientboundGamePacket::EntityEvent(p) if p.event_id == 9 => {
             let _ = event_tx.try_send(NetworkEvent::FinishUseItem { id: p.entity_id.0 });
