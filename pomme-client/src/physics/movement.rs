@@ -34,6 +34,8 @@ const WATER_GRAVITY: f64 = 0.02;
 const STEP_HEIGHT: f64 = 0.6;
 pub const PLAYER_HALF_WIDTH: f64 = 0.3;
 pub const PLAYER_HEIGHT: f64 = 1.8;
+const DYING_HALF_WIDTH: f64 = 0.1;
+const DYING_HEIGHT: f64 = 0.2;
 const SPRINT_JUMP_BOOST: f64 = 0.2;
 const FLYING_VERTICAL_FRICTION: f64 = 0.6;
 // Vanilla Player.getFlyingSpeed: sprinting while airborne (not flying).
@@ -128,8 +130,8 @@ pub fn tick(
             chunk_store,
             forward,
             strafe,
-            sin_y_rot,
-            cos_y_rot,
+            PLAYER_HALF_WIDTH,
+            player.height(),
         );
     } else {
         tick_land(
@@ -138,8 +140,8 @@ pub fn tick(
             chunk_store,
             forward,
             strafe,
-            sin_y_rot,
-            cos_y_rot,
+            PLAYER_HALF_WIDTH,
+            player.height(),
         );
     }
 
@@ -153,6 +155,65 @@ pub fn tick(
 
     player.was_forward_pressed = forward_pressed;
     player.was_jump_pressed = jump_held;
+}
+
+fn dead_tick_dimensions(player: &LocalPlayer) -> (f64, f64, f64) {
+    if player.death_time == 1 {
+        (
+            DYING_HALF_WIDTH,
+            DYING_HEIGHT,
+            crate::player::STANDING_EYE_HEIGHT,
+        )
+    } else {
+        (
+            PLAYER_HALF_WIDTH,
+            player.height(),
+            player.target_eye_height(),
+        )
+    }
+}
+
+/// Vanilla dead-player `LivingEntity.aiStep`: input is immobile, but travel
+/// still applies existing velocity, gravity, collision, and drag until tick-20
+/// removal.
+pub fn tick_dead(player: &mut LocalPlayer, chunk_store: &ChunkStore) {
+    player.no_jump_delay = 0;
+    player.sprinting = false;
+
+    // `die()` sets Pose.DYING immediately. Player.updatePlayerPose runs only at
+    // the end of that first dead tick, so only that travel step uses 0.2 x 0.2.
+    let first_dead_tick = player.death_time == 1;
+    let (half_width, height, eye_height) = dead_tick_dimensions(player);
+
+    let neutral = InputState::released();
+    player.update_water_state_for_dimensions(chunk_store, half_width, height, eye_height);
+
+    // Camera.tick runs before entity ticks in vanilla, so it observes the pose
+    // from the previous tick. DYING and standing both target a 1.62 eye height.
+    if first_dead_tick {
+        player.prev_eye_height = player.eye_height;
+        player.eye_height += (crate::player::STANDING_EYE_HEIGHT - player.eye_height) * 0.5;
+    } else {
+        player.tick_eye_height();
+    }
+
+    if player.in_water {
+        tick_water(player, &neutral, chunk_store, 0.0, 0.0, half_width, height);
+    } else {
+        tick_land(player, &neutral, chunk_store, 0.0, 0.0, half_width, height);
+    }
+
+    // Player.updatePlayerPose runs after LivingEntity.tick in vanilla. With
+    // death-screen input released, this becomes standing unless clearance keeps
+    // the player in the crouching pose for the following tick.
+    update_crouch_state(player, &neutral, chunk_store);
+
+    if player.on_ground && player.flying && player.game_mode != 3 {
+        player.flying = false;
+        player.abilities_dirty = true;
+    }
+    player.was_forward_pressed = false;
+    player.was_jump_pressed = false;
 }
 
 // Vanilla `LocalPlayer.aiStep`: a fresh jump press arms the toggle window;
@@ -199,8 +260,8 @@ fn tick_land(
     chunk_store: &ChunkStore,
     forward: f64,
     strafe: f64,
-    sin_y_rot: f64,
-    cos_y_rot: f64,
+    half_width: f64,
+    height: f64,
 ) {
     // Vanilla `travelInAir` samples on-ground once before the move and reuses
     // it for the end-of-tick drag, so a jump launches with ground friction.
@@ -215,6 +276,7 @@ fn tick_land(
     };
 
     let accel = friction_influenced_speed(speed, player, BLOCK_FRICTION);
+    let (sin_y_rot, cos_y_rot) = (player.look_dir.y_rot_rad() as f64).sin_cos();
     let (move_x, move_z) = world_movement(forward, strafe, sin_y_rot, cos_y_rot);
     player.velocity.x += move_x * accel;
     player.velocity.z += move_z * accel;
@@ -225,8 +287,8 @@ fn tick_land(
         chunk_store,
         forward,
         strafe,
-        sin_y_rot,
-        cos_y_rot,
+        half_width,
+        height,
     );
 
     player.velocity.y -= GRAVITY;
@@ -249,13 +311,14 @@ fn tick_water(
     chunk_store: &ChunkStore,
     forward: f64,
     strafe: f64,
-    sin_y_rot: f64,
-    cos_y_rot: f64,
+    half_width: f64,
+    height: f64,
 ) {
     if input.performing_action(input::Action::Sneak) {
         player.velocity.y -= 0.04;
     }
 
+    let (sin_y_rot, cos_y_rot) = (player.look_dir.y_rot_rad() as f64).sin_cos();
     let (move_x, move_z) = world_movement(forward, strafe, sin_y_rot, cos_y_rot);
     player.velocity.x += move_x * WATER_ACCELERATION;
     player.velocity.z += move_z * WATER_ACCELERATION;
@@ -275,8 +338,8 @@ fn tick_water(
         chunk_store,
         forward,
         strafe,
-        sin_y_rot,
-        cos_y_rot,
+        half_width,
+        height,
     );
 
     let h_drag = if player.sprinting {
@@ -313,14 +376,10 @@ fn apply_collision(
     chunk_store: &ChunkStore,
     forward: f64,
     strafe: f64,
-    sin_y_rot: f64,
-    cos_y_rot: f64,
+    half_width: f64,
+    height: f64,
 ) {
-    let aabb = Aabb::from_center(
-        player.position.into(),
-        PLAYER_HALF_WIDTH,
-        player.height() / 2.0,
-    );
+    let aabb = Aabb::from_center(player.position.into(), half_width, height / 2.0);
     let delta = back_off_from_edge(
         chunk_store,
         &aabb,
@@ -357,6 +416,7 @@ fn apply_collision(
         player.velocity.y = 0.0;
     }
 
+    let (sin_y_rot, cos_y_rot) = (player.look_dir.y_rot_rad() as f64).sin_cos();
     if player.sprinting
         && horizontal_collision
         && forward > 0.0
@@ -586,4 +646,74 @@ fn square_movement(forward: f64, strafe: f64) -> (f64, f64) {
     let modified = (len * len / max_axis).min(1.0);
     let scale = modified / len;
     (forward * scale, strafe * scale)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dead_player_keeps_zero_input_air_travel() {
+        crate::world::block::init("26.2");
+        let mut player = LocalPlayer::new();
+        player.position = dvec3(0.0, 80.0, 0.0).into();
+        player.velocity = crate::entity::components::Velocity::new(0.25, 0.0, -0.1);
+        player.sprinting = true;
+        player.crouching = true;
+        player.eye_height = 1.27;
+        player.prev_eye_height = 1.27;
+        let chunks = ChunkStore::new(2);
+
+        player.death_time = 1;
+        assert_eq!(
+            dead_tick_dimensions(&player),
+            (
+                DYING_HALF_WIDTH,
+                DYING_HEIGHT,
+                crate::player::STANDING_EYE_HEIGHT
+            ),
+            "the first dead tick must use Vanilla's immediate DYING dimensions"
+        );
+        player.death_time = 2;
+        assert_eq!(
+            dead_tick_dimensions(&player),
+            (
+                PLAYER_HALF_WIDTH,
+                player.height(),
+                player.target_eye_height()
+            ),
+            "after Player.updatePlayerPose, dead travel must use the current ordinary pose"
+        );
+        player.death_time = 1;
+        tick_dead(&mut player, &chunks);
+
+        assert!(
+            !player.crouching,
+            "the first dead tick must end by selecting the neutral-input pose"
+        );
+        assert!(
+            player.eye_height > 1.27,
+            "dead-player camera eye height must keep smoothing toward the current pose"
+        );
+        assert!(
+            player.position.x > 0.0,
+            "dead-player momentum must still move the corpse"
+        );
+        assert!(
+            player.position.z < 0.0,
+            "dead-player momentum must still move the corpse"
+        );
+        assert!(
+            player.position.y <= 80.0,
+            "dead-player travel must continue applying gravity"
+        );
+        assert!(
+            player.velocity.y < 0.0,
+            "dead-player travel must retain downward gravity/drag"
+        );
+        assert!(
+            !player.sprinting,
+            "immobile dead-player input must stop sprinting"
+        );
+    }
 }

@@ -236,10 +236,21 @@ impl LocalPlayer {
     }
 
     pub fn update_water_state(&mut self, chunks: &crate::world::chunk::ChunkStore) {
-        let half_w = 0.3;
-        let height = self.height();
-        let eye_height = self.target_eye_height();
+        self.update_water_state_for_dimensions(
+            chunks,
+            0.3,
+            self.height(),
+            self.target_eye_height(),
+        );
+    }
 
+    pub(crate) fn update_water_state_for_dimensions(
+        &mut self,
+        chunks: &crate::world::chunk::ChunkStore,
+        half_w: f64,
+        height: f64,
+        eye_height: f64,
+    ) {
         // Vanilla `EntityFluidInteraction.update`: scan the bounding box
         // deflated by 0.001; a block's fluid column is `amount / 9` of a
         // block, or a full block when more water sits directly above.

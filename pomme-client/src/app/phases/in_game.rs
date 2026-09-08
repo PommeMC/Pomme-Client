@@ -2667,7 +2667,7 @@ pub fn update_game(
             head_y_rot_deg: interp_y_rot_deg,
             head_x_rot_deg: gfx.renderer.camera_look_dir().x_rot_deg(),
             body_y_rot_deg: interp_y_rot_deg, // TODO: proper body rotation affected by collisions
-            is_crouching: game.player.crouching,
+            is_crouching: game.player.crouching && (!game.dead || game.player.death_time > 0),
             walk_anim_pos: game.player_walk_pos - game.player_walk_speed * (1.0 - partial_tick),
             walk_anim_speed: (game.player_prev_walk_speed
                 + (game.player_walk_speed - game.player_prev_walk_speed) * partial_tick)

@@ -1638,19 +1638,33 @@ impl AppCore {
         // Vanilla ClientLevel keeps ticking other entities while the local player
         // is dead. Advance their interpolation/animation state before the local
         // dead-player early return so they do not replay stale tick endpoints.
-        game.entity_store.tick_living(&game.chunk_store);
+        game.entity_store.tick_living(
+            &game.chunk_store,
+            game.player.position,
+            game.server_simulation_distance,
+        );
 
         // Vanilla ClientLevel snapshots old entity transform before every tick,
         // including dead-player ticks. Keep render interpolation on that lifecycle.
         game.player.snapshot_render_state();
         if game.dead {
             game.player.tick_death();
+            movement::tick_dead(&mut game.player, &game.chunk_store);
             crate::entity::stop_walk_animation(
                 &mut game.player_walk_pos,
                 &mut game.player_walk_speed,
                 &mut game.player_prev_walk_speed,
             );
-            game.player.tick_bob(0.0, 0.0, true);
+            let dx = game.player.position.x - game.player.prev_position.x;
+            let dz = game.player.position.z - game.player.prev_position.z;
+            game.player.tick_bob(dx, dz, true);
+
+            let neutral = InputState::released();
+            Self::send_abilities_packet(connection, game);
+            Self::send_input_packet(&neutral, connection, game);
+            self.send_sprint_command(connection, game);
+            self.send_position_packet(connection, game);
+
             // Q/F presses queued while dead must not fire on respawn.
             self.input.clear_click_counts();
             return;

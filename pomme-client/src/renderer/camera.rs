@@ -282,20 +282,32 @@ impl Camera {
     }
 
     pub fn frustum_planes(&self) -> [[f32; 4]; 6] {
-        Self::planes_from_view_projection(self.view_projection())
+        Self::planes_from_view_projection(self.culling_view_projection(self.culling_fov()))
     }
 
     /// Frustum planes for a FOV widened by `extra_radians` (clamped below
     /// 180°), giving an "about to be seen" margin for occlusion-gated mesh
     /// scheduling.
     pub fn frustum_planes_dilated(&self, extra_radians: f32) -> [[f32; 4]; 6] {
-        // Vanilla createProjectionMatrixForCulling never culls narrower than the
-        // base FOV, so a narrowing modifier (underwater) can't clip visible edges.
-        let cull_fov = self
-            .fov_radians(self.render_partial_tick)
-            .max(self.base_fov_degrees.to_radians());
-        let fov = (cull_fov + extra_radians).min(2.96);
-        Self::planes_from_view_projection(self.view_projection_with_fov(fov))
+        let fov = (self.culling_fov() + extra_radians).min(2.96);
+        Self::planes_from_view_projection(self.culling_view_projection(fov))
+    }
+
+    fn culling_fov(&self) -> f32 {
+        // Vanilla createProjectionMatrixForCulling never culls narrower than
+        // the configured base FOV, even when death/fluid effects narrow render FOV.
+        self.fov_radians(self.render_partial_tick)
+            .max(self.base_fov_degrees.to_radians())
+    }
+
+    fn culling_view_projection(&self, fov: f32) -> Mat4 {
+        let offset = self.third_person_offset();
+        let (forward, up) = self.view_basis();
+        // Vanilla prepares the cull frustum before bobHurt/bobView are applied.
+        let view = view::look_to_mat4(offset, forward, up);
+        let mut proj = proj::directx::perspective(fov, self.aspect_ratio, NEAR, self.depth_far);
+        proj.y_axis.y *= -1.0;
+        proj * view
     }
 
     fn planes_from_view_projection(m: Mat4) -> [[f32; 4]; 6] {
@@ -541,6 +553,23 @@ impl CameraUniform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn death_effects_do_not_rotate_or_narrow_culling_frustum() {
+        let mut camera = Camera::new(16.0 / 9.0);
+        let alive = camera.frustum_planes();
+        camera.death_time = 20.0;
+        let dead = camera.frustum_planes();
+
+        for (alive_plane, dead_plane) in alive.iter().zip(dead.iter()) {
+            for (alive_value, dead_value) in alive_plane.iter().zip(dead_plane.iter()) {
+                assert!(
+                    (alive_value - dead_value).abs() < 1e-6,
+                    "death render effects must not alter Vanilla's culling frustum"
+                );
+            }
+        }
+    }
 
     #[test]
     fn fov_modifier_tick_keeps_render_boundary_continuous() {

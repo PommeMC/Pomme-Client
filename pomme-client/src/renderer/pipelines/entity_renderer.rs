@@ -27,7 +27,7 @@ fn flip_degrees(kind: EntityKind) -> f32 {
 }
 
 fn death_fall_degrees(death_time: f32, kind: EntityKind) -> f32 {
-    if death_time <= 0.0 {
+    if death_time <= 0.0 || matches!(kind, EntityKind::Squid | EntityKind::GlowSquid) {
         return 0.0;
     }
     (((death_time - 1.0) / 20.0 * 1.6).sqrt()).min(1.0) * flip_degrees(kind)
@@ -2825,6 +2825,13 @@ mod tests {
                 super::death_fall_degrees(20.0, kind),
                 180.0,
                 "vanilla renderer override must use a 180-degree death flip for {kind:?}"
+            );
+        }
+        for kind in [EntityKind::Squid, EntityKind::GlowSquid] {
+            assert_eq!(
+                super::death_fall_degrees(20.0, kind),
+                0.0,
+                "Vanilla SquidRenderer bypasses LivingEntityRenderer.setupRotations for {kind:?}"
             );
         }
     }

@@ -99,12 +99,18 @@ const HURT_DURATION: u8 = 10;
 /// (`LivingEntity.getCurrentSwingDuration`).
 const SWING_DURATION: u8 = 6;
 
-fn tick_death_time(health: f32, death_time: &mut u32) {
-    if health <= 0.0 {
+fn tick_death_time(health: f32, should_tick: bool, death_time: &mut u32) {
+    if health <= 0.0 && should_tick {
         *death_time = death_time.wrapping_add(1);
-    } else {
-        *death_time = 0;
     }
+}
+
+fn within_simulation_distance(entity: Position, player: Position, distance: u32) -> bool {
+    let entity_x = (entity.x.floor() as i32).div_euclid(16);
+    let entity_z = (entity.z.floor() as i32).div_euclid(16);
+    let player_x = (player.x.floor() as i32).div_euclid(16);
+    let player_z = (player.z.floor() as i32).div_euclid(16);
+    entity_x.abs_diff(player_x).max(entity_z.abs_diff(player_z)) <= distance
 }
 
 #[allow(dead_code)]
@@ -1224,7 +1230,7 @@ impl EntityStore {
             && entity.entity_type != EntityKind::Player
         {
             entity.health = 0.0;
-            entity.death_time = 0;
+            entity.is_crouching = false;
         }
     }
 
@@ -1342,7 +1348,12 @@ impl EntityStore {
             .find(|entity| entity.player_uuid == Some(*uuid))
     }
 
-    pub fn tick_living(&mut self, chunks: &ChunkStore) {
+    pub fn tick_living(
+        &mut self,
+        chunks: &ChunkStore,
+        player_position: Position,
+        simulation_distance: u32,
+    ) {
         for entity in self.living.values_mut() {
             entity.tick_interpolation();
             entity.tick_body_rotation();
@@ -1375,7 +1386,11 @@ impl EntityStore {
             if entity.hurt_time > 0 {
                 entity.hurt_time -= 1;
             }
-            tick_death_time(entity.health, &mut entity.death_time);
+            tick_death_time(
+                entity.health,
+                within_simulation_distance(entity.position, player_position, simulation_distance),
+                &mut entity.death_time,
+            );
             if entity.swing_time > 0 {
                 entity.swing_time -= 1;
             }
@@ -1503,7 +1518,7 @@ mod tests {
         store.move_living_delta(1, 3.0, 0.0, 0.0, true);
         let before = store.living[&1].position;
 
-        store.tick_living(&ChunkStore::new(2));
+        store.tick_living(&ChunkStore::new(2), Position::default(), 10);
 
         let entity = &store.living[&1];
         assert_eq!(
@@ -1537,20 +1552,42 @@ mod tests {
     }
 
     #[test]
-    fn death_clock_tracks_health_boundary_and_recovery() {
+    fn death_clock_matches_health_and_simulation_distance_boundaries() {
         let mut death_time = 7;
-        tick_death_time(0.01, &mut death_time);
+        tick_death_time(0.01, true, &mut death_time);
         assert_eq!(
-            death_time, 0,
-            "positive health must clear a stale death clock"
+            death_time, 7,
+            "vanilla does not rewind deathTime merely because health is positive"
         );
 
-        tick_death_time(0.0, &mut death_time);
-        assert_eq!(death_time, 1, "zero health starts the death clock");
-        tick_death_time(-1.0, &mut death_time);
+        tick_death_time(0.0, false, &mut death_time);
         assert_eq!(
-            death_time, 2,
-            "non-positive health keeps advancing the death clock"
+            death_time, 7,
+            "dead entities outside simulation distance must not advance deathTime"
+        );
+        tick_death_time(0.0, true, &mut death_time);
+        assert_eq!(
+            death_time, 8,
+            "zero health in simulation range advances deathTime"
+        );
+        tick_death_time(-1.0, true, &mut death_time);
+        assert_eq!(
+            death_time, 9,
+            "non-positive health in simulation range keeps advancing deathTime"
+        );
+    }
+
+    #[test]
+    fn death_simulation_distance_uses_chunk_chessboard_distance() {
+        let player = Position::new(15.9, 64.0, -0.1);
+        assert!(within_simulation_distance(
+            Position::new(16.0 * 10.0, 64.0, -16.0 * 10.0),
+            player,
+            10,
+        ));
+        assert!(
+            !within_simulation_distance(Position::new(16.0 * 11.0, 64.0, 0.0), player, 10,),
+            "chunk 11 must be outside a simulation distance of 10"
         );
     }
 
@@ -1574,12 +1611,22 @@ mod tests {
             None,
         );
 
+        store.living.get_mut(&1).unwrap().death_time = 6;
+        store.living.get_mut(&1).unwrap().is_crouching = true;
         store.mark_dead(1);
         store.mark_dead(2);
 
         assert_eq!(
             store.living[&1].health, 0.0,
             "vanilla event 3 kills non-player living entities client-side"
+        );
+        assert_eq!(
+            store.living[&1].death_time, 6,
+            "event 3 must not restart an already-running vanilla death clock"
+        );
+        assert!(
+            !store.living[&1].is_crouching,
+            "non-player event 3 transitions the entity to the DYING pose"
         );
         assert_eq!(
             store.living[&2].health, 20.0,

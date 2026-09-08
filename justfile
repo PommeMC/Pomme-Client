@@ -29,7 +29,7 @@ client-pre-pr:
     @cargo clippy -p pomme-client --release --all-targets --all-features -- -D warnings
     @cargo clippy -p pomme-protocol --release --all-targets --all-features -- -D warnings
     @cargo test -p pomme-protocol
-    @cargo test -p pomme-client -- net::azalea_compat world::block renderer::camera:: renderer::pipelines::entity_renderer:: entity:: player:: ui::menu::
+    @cargo test -p pomme-client -- net::azalea_compat world::block renderer::camera:: renderer::pipelines::entity_renderer:: entity:: player:: physics::movement:: ui::menu::
 
 # Regenerate a version's packet-id table from the decompiled reference.
 protogen version="26.2":
