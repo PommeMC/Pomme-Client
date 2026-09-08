@@ -9,7 +9,9 @@ use crate::ui::text_edit::TextFieldRenderInfo;
 pub const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 pub const FONT_SIZE: f32 = 8.0;
 pub const BTN_H: f32 = 20.0;
-pub const COL_DISABLED: [f32; 4] = [0.35, 0.36, 0.45, 1.0];
+/// Vanilla's inactive-widget text colour, `0xA0A0A0`
+/// (`AbstractWidget.WithInactiveMessage.defaultInactiveMessage`).
+pub const COL_DISABLED: [f32; 4] = [0.627, 0.627, 0.627, 1.0];
 pub const SLOT_SIZE: f32 = 16.0;
 pub const SLOT_STRIDE: f32 = 18.0;
 pub const SLOT_LABEL_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
@@ -609,7 +611,8 @@ pub fn push_slider(
         w,
         h,
         sprite: SpriteId::SliderTrack,
-        border: BTN_BORDER * gs,
+        // `widget/slider.png.mcmeta` declares a 1px border, not the button's 3.
+        border: 1.0 * gs,
         tint: WHITE,
     });
 

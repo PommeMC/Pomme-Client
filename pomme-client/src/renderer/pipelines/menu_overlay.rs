@@ -2424,12 +2424,12 @@ fn build_sprite_atlas(
         (
             SpriteId::SliderTrack,
             "minecraft/textures/gui/sprites/widget/slider.png",
-            3.0,
+            1.0,
         ),
         (
             SpriteId::SliderTrackHover,
             "minecraft/textures/gui/sprites/widget/slider_highlighted.png",
-            3.0,
+            1.0,
         ),
         (
             SpriteId::SliderHandle,

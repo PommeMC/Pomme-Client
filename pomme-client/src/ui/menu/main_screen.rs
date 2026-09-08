@@ -297,7 +297,7 @@ impl MainMenu {
                     icon,
                     scale: icon_scale,
                     color: if !enabled {
-                        [0.45, 0.47, 0.58, 0.35]
+                        text_disabled
                     } else if hovered {
                         text_bright
                     } else {

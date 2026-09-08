@@ -14,6 +14,17 @@ fn option_enabled(label: &str, disabled: &[&str]) -> bool {
     !disabled.iter().any(|prefix| label.starts_with(prefix))
 }
 
+/// Widget labels a row builds; `Header` rows are text, not widgets. Only the
+/// disable-list guard needs this, so it is debug-only.
+#[cfg(debug_assertions)]
+fn row_labels<'a>(row: &OptRow<'a>) -> Vec<&'a str> {
+    match row {
+        OptRow::Header(_) => Vec::new(),
+        OptRow::Big(a) | OptRow::PairLeft(a) => vec![*a],
+        OptRow::Pair(a, b) => vec![*a, *b],
+    }
+}
+
 fn compat_label(compat: PackCompat) -> (&'static str, [f32; 4]) {
     match compat {
         PackCompat::Compatible => ("Compatible", [0.33, 0.87, 0.33, 1.0]),
@@ -66,13 +77,9 @@ impl MainMenu {
 
         let fov_frac = (self.fov as f32 - 30.0) / 80.0;
         let sliders: &[(&str, f32)] = &[("FOV:", fov_frac)];
-        let disabled = &[
-            "Online...",
-            "Language...",
-            "Chat Settings...",
-            "Telemetry Data...",
-            "Credits & Attribution...",
-        ];
+        // Nav rows are disabled only where the target is a `build_options_stub`
+        // page; screens with real (if inert) controls stay reachable.
+        let disabled = &["Language...", "Telemetry Data..."];
         self.build_options_grid(
             sw,
             sh,
@@ -457,6 +464,7 @@ impl MainMenu {
             ("UI:", self.ui_volume),
         ];
         let disabled = &[
+            // TODO: drop once `SoundCategory::Ui` exists.
             "UI:",
             "Device:",
             "Directional Audio:",
@@ -528,6 +536,8 @@ impl MainMenu {
             OptRow::Pair(left_pants, right_pants),
             OptRow::Pair(hat, main_hand),
         ];
+        // "Main Hand:" stays enabled: it moves the attack indicator client-side.
+        // The model toggles do nothing; `client_information` hardcodes them.
         let disabled = &[
             "Cape:",
             "Jacket:",
@@ -771,6 +781,18 @@ impl MainMenu {
             });
         }
 
+        // Rewording a label would silently re-enable its control, so catch a
+        // prefix that no longer matches anything.
+        #[cfg(debug_assertions)]
+        {
+            for p in disabled {
+                debug_assert!(
+                    rows.iter().flat_map(row_labels).any(|l| l.starts_with(p)),
+                    "{title}: disabled prefix {p:?} matches no row",
+                );
+            }
+        }
+
         self.focus_advance(input);
         let mut ctx = self.make_focus_ctx(input);
 
@@ -831,7 +853,8 @@ impl MainMenu {
                 }
 
                 let focused = ctx.focused(enabled);
-                let h = enabled && common::hit_test(cursor, [bx, by, bw, btn_h]);
+                let hit = common::hit_test(cursor, [bx, by, bw, btn_h]);
+                let h = enabled && hit;
                 let draw_cursor = helpers::focus_cursor(focused, h, bx, by, bw, btn_h, cursor);
                 common::push_button_scrolling(
                     &mut elements,
@@ -847,7 +870,9 @@ impl MainMenu {
                     &label_scroll,
                 );
                 any_hovered |= h;
-                if h && let Some((_, tip)) = tooltips.iter().find(|(p, _)| label.starts_with(p)) {
+                // Vanilla keys tooltips off `isHovered`, which ignores `active`
+                // (`AbstractWidget.extractTooltipForNextRenderPass`).
+                if hit && let Some((_, tip)) = tooltips.iter().find(|(p, _)| label.starts_with(p)) {
                     common::push_tooltip(&mut elements, cursor, sw, sh, gs, tip);
                 }
                 if (clicked && h) || (focused && ctx.activate) {
@@ -1501,5 +1526,38 @@ mod tests {
         assert!(!result.hovered);
         assert!(!result.dragging);
         assert_eq!(result.new_value, None);
+    }
+
+    /// Drives every options screen so `build_options_grid`'s debug assertion
+    /// checks each screen's rows against its disabled list.
+    #[test]
+    fn disabled_prefixes_cover_every_options_screen() {
+        let rt = std::sync::Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("current-thread runtime"),
+        );
+        // Nonexistent dir: settings and the server list fall back to defaults,
+        // and nothing writes without a click.
+        let mut menu = MainMenu::new(
+            std::path::Path::new("pomme-options-coverage-test"),
+            rt,
+            "tester".into(),
+            "26.2".into(),
+            None,
+        );
+        let input = MenuInput::default();
+        let text_width = |_: &str, _: f32| 0.0;
+        let tw: common::TextWidthFn = &text_width;
+        let (sw, sh) = (1920.0, 1080.0);
+
+        menu.build_options(sw, sh, &input, tw);
+        menu.build_options_video(sw, sh, &input, tw);
+        menu.build_options_controls(sw, sh, &input, tw);
+        menu.build_options_chat(sw, sh, &input, tw);
+        menu.build_options_accessibility(sw, sh, &input, tw);
+        menu.build_options_music(sw, sh, &input, tw);
+        menu.build_options_skin(sw, sh, &input, tw);
+        menu.build_options_online(sw, sh, &input, tw);
     }
 }
