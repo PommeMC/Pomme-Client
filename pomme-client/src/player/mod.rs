@@ -170,7 +170,11 @@ impl LocalPlayer {
     }
 
     pub fn tick_death(&mut self) {
-        self.death_time = self.death_time.wrapping_add(1);
+        self.death_time = (self.death_time + 1).min(20);
+    }
+
+    pub fn death_animation_finished(&self) -> bool {
+        self.death_time >= 20
     }
 
     pub fn height(&self) -> f64 {
@@ -354,6 +358,32 @@ impl LocalPlayer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_player_is_removed_at_vanilla_death_tick() {
+        let mut player = LocalPlayer::new();
+        player.death_time = 18;
+
+        player.tick_death();
+        assert_eq!(player.death_time, 19);
+        assert!(
+            !player.death_animation_finished(),
+            "vanilla keeps the local player renderable through death tick 19"
+        );
+
+        player.tick_death();
+        assert_eq!(player.death_time, 20);
+        assert!(
+            player.death_animation_finished(),
+            "vanilla removes LocalPlayer exactly when deathTime reaches 20"
+        );
+
+        player.tick_death();
+        assert_eq!(
+            player.death_time, 20,
+            "removed local players no longer advance their death clock"
+        );
+    }
 
     #[test]
     fn dead_bob_advances_previous_state_and_decays() {

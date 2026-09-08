@@ -2647,7 +2647,10 @@ pub fn update_game(
             .collect()
     };
 
-    if !benchmark_running && !gfx.renderer.is_first_person() {
+    if !benchmark_running
+        && !gfx.renderer.is_first_person()
+        && !game.player.death_animation_finished()
+    {
         let interp_pos = game
             .player
             .prev_position
