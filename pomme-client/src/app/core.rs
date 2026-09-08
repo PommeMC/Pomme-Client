@@ -1634,6 +1634,11 @@ impl AppCore {
             1.0
         });
 
+        // Vanilla ClientLevel keeps ticking other entities while the local player
+        // is dead. Advance their interpolation/animation state before the local
+        // dead-player early return so they do not replay stale tick endpoints.
+        game.entity_store.tick_living(&game.chunk_store);
+
         // Vanilla ClientLevel snapshots old entity transform before every tick,
         // including dead-player ticks. Keep render interpolation on that lifecycle.
         game.player.snapshot_render_state();
@@ -1761,8 +1766,6 @@ impl AppCore {
             game.interaction.use_speed_multiplier(),
             game.interaction.slow_due_to_using_item(),
         );
-        game.entity_store.tick_living(&game.chunk_store);
-
         let dx = game.player.position.x - game.player.prev_position.x;
         let dz = game.player.position.z - game.player.prev_position.z;
         crate::entity::update_walk_animation(

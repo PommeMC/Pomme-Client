@@ -1490,6 +1490,37 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tick_living_advances_remote_interpolation_state() {
+        let mut store = EntityStore::new();
+        store.spawn_living(
+            1,
+            EntityKind::Zombie,
+            Position::new(0.0, 64.0, 0.0),
+            LookDirection::default(),
+            0.0,
+            None,
+        );
+        store.move_living_delta(1, 3.0, 0.0, 0.0, true);
+        let before = store.living[&1].position;
+
+        store.tick_living(&ChunkStore::new(2));
+
+        let entity = &store.living[&1];
+        assert_eq!(
+            entity.prev_position, before,
+            "each world tick must advance the remote entity interpolation endpoint"
+        );
+        assert_ne!(
+            entity.position, before,
+            "a pending remote movement interpolation must keep progressing"
+        );
+        assert_eq!(
+            entity.age_in_ticks, 1,
+            "remote living entities must keep receiving client ticks"
+        );
+    }
+
+    #[test]
     fn stop_walk_animation_matches_vanilla_state_reset() {
         let mut position = 12.5;
         let mut speed = 0.7;
