@@ -2031,6 +2031,46 @@ struct SpriteAtlas {
 const INV_TEX_W: u32 = 176;
 const INV_TEX_H: u32 = 166;
 
+/// Downscales a straight-alpha sprite, filtering it premultiplied so the
+/// transparent border's black stays out of the edge texels' colour. The atlas
+/// stores straight alpha and the shader premultiplies at sample time, so a
+/// naive filter would darken every anti-aliased edge twice over.
+fn downscale_straight_alpha(src: &image::RgbaImage, size: u32) -> image::RgbaImage {
+    let mut premul = image::Rgba32FImage::new(src.width(), src.height());
+    for (dst, src) in premul.pixels_mut().zip(src.pixels()) {
+        let a = f32::from(src[3]) / 255.0;
+        *dst = image::Rgba([
+            f32::from(src[0]) / 255.0 * a,
+            f32::from(src[1]) / 255.0 * a,
+            f32::from(src[2]) / 255.0 * a,
+            a,
+        ]);
+    }
+
+    // Lanczos rings and the resize clamps each channel on its own, so colour
+    // can land above its own alpha; undo the premultiply against that clamp.
+    let scaled =
+        image::imageops::resize(&premul, size, size, image::imageops::FilterType::Lanczos3);
+    let mut out = image::RgbaImage::new(size, size);
+    for (dst, src) in out.pixels_mut().zip(scaled.pixels()) {
+        let a = src[3].clamp(0.0, 1.0);
+        let straight = |c: f32| {
+            if a == 0.0 {
+                0
+            } else {
+                ((c / a).clamp(0.0, 1.0) * 255.0).round() as u8
+            }
+        };
+        *dst = image::Rgba([
+            straight(src[0]),
+            straight(src[1]),
+            straight(src[2]),
+            (a * 255.0).round() as u8,
+        ]);
+    }
+    out
+}
+
 fn build_sprite_atlas(
     device: &vk::Device,
     queue: vk::Queue,
@@ -3022,20 +3062,16 @@ fn build_sprite_atlas(
         }
     }
 
-    // Downscaled 4:1 with a nearest filter so the pixel art stays crisp and the
-    // 512px source doesn't dominate the atlas.
-    const POMME_LOGO_SIZE: u32 = 128;
+    // The credits roll draws the mark at 44 GUI units, so 44 * gui_scale px:
+    // 176 at 1080p, 264 at 1440p, 396 at 4K on the default auto scale. The
+    // atlas sampler is NEAREST, so 256 is the size that straddles that range
+    // with the least resampling either way.
+    const POMME_LOGO_SIZE: u32 = 256;
     match image::load_from_memory(crate::assets::POMME_ICON_PNG) {
         Ok(img) => {
-            let scaled = image::imageops::resize(
-                &img.to_rgba8(),
-                POMME_LOGO_SIZE,
-                POMME_LOGO_SIZE,
-                image::imageops::FilterType::Nearest,
-            );
             images.push((
                 SpriteId::PommeLogo,
-                scaled.into_raw(),
+                downscale_straight_alpha(&img.to_rgba8(), POMME_LOGO_SIZE).into_raw(),
                 POMME_LOGO_SIZE,
                 POMME_LOGO_SIZE,
                 0.0,
@@ -3989,4 +4025,29 @@ fn create_pipeline(
     device.destroy_shader_module(frag_module, None);
 
     pipeline
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn downscale_keeps_colour_out_of_the_transparent_border() {
+        // Opaque white against the transparent black an anti-aliased sprite
+        // sits on; filtering straight alpha would leave the edge texels grey.
+        let mut src = image::RgbaImage::new(16, 16);
+        for (x, _, px) in src.enumerate_pixels_mut() {
+            *px = if x < 8 {
+                image::Rgba([255, 255, 255, 255])
+            } else {
+                image::Rgba([0, 0, 0, 0])
+            };
+        }
+
+        let out = downscale_straight_alpha(&src, 4);
+        assert!(out.pixels().any(|px| px[3] > 0 && px[3] < 255));
+        for px in out.pixels().filter(|px| px[3] > 0) {
+            assert_eq!([px[0], px[1], px[2]], [255, 255, 255], "alpha {}", px[3]);
+        }
+    }
 }

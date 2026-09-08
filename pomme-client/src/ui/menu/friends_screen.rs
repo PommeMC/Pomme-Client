@@ -90,22 +90,9 @@ impl MainMenu {
         let incoming_count = lists.as_ref().map(|l| l.incoming.len()).unwrap_or(0);
 
         // Vanilla renders Friends as a dialog over the previous screen. Re-draw
-        // the title screen as a static backdrop (neutral input → visuals only,
-        // no hover/click/actions); the renderer blurs it behind the panel.
-        let backdrop_input = MenuInput {
-            cursor: (-1.0, -1.0),
-            clicked: false,
-            mouse_held: false,
-            events: Vec::new(),
-            shift: false,
-            enter: false,
-            escape: false,
-            tab: false,
-            f5: false,
-            scroll_delta: 0.0,
-            up_held: false,
-            space_held: false,
-        };
+        // the title screen as a static backdrop; the renderer blurs it behind
+        // the panel.
+        let backdrop_input = MenuInput::backdrop();
         let mut elements = self
             .build_main(screen_w, screen_h, &backdrop_input, text_width_fn)
             .elements;

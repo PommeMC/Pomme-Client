@@ -25,7 +25,9 @@ use crate::physics::movement;
 use crate::player::LocalPlayer;
 use crate::renderer::Renderer;
 use crate::resource_pack::ResourcePackManager;
-use crate::ui::menu::{MainMenu, MenuInput};
+use crate::ui::menu::{
+    CREDITS_KEY_CTRL_L, CREDITS_KEY_CTRL_R, CREDITS_KEY_SPACE, CREDITS_KEY_UP, MainMenu, MenuInput,
+};
 use crate::user::UserData;
 use crate::world::chunk::ChunkStore;
 
@@ -225,6 +227,23 @@ pub struct AppCore {
     player_faces_dirty: bool,
 }
 
+/// Folds the credits roll's keys into a `CREDITS_KEY_*` mask. Both control
+/// keys count separately in vanilla's `speedupModifiers`, so this can't go
+/// through `InputState::ctrl_held`, which folds them into one winit modifier
+/// bit.
+fn credits_key_mask(mut is_set: impl FnMut(KeyCode) -> bool) -> u8 {
+    [
+        (KeyCode::ArrowUp, CREDITS_KEY_UP),
+        (KeyCode::Space, CREDITS_KEY_SPACE),
+        (KeyCode::ControlLeft, CREDITS_KEY_CTRL_L),
+        (KeyCode::ControlRight, CREDITS_KEY_CTRL_R),
+    ]
+    .into_iter()
+    .filter(|&(code, _)| is_set(code))
+    .map(|(_, bit)| bit)
+    .sum()
+}
+
 impl AppCore {
     pub fn new(
         version: String,
@@ -279,7 +298,9 @@ impl AppCore {
         }
     }
 
-    pub fn build_menu_input(&mut self) -> MenuInput {
+    pub fn build_menu_input(&mut self, dt: f32) -> MenuInput {
+        let credits_keys_down = credits_key_mask(|code| self.input.key_pressed(code));
+        let credits_keys_pressed = credits_key_mask(|code| self.input.key_just_pressed(code));
         MenuInput {
             cursor: self.input.cursor_pos(),
             clicked: self.input.left_just_pressed(),
@@ -291,8 +312,9 @@ impl AppCore {
             tab: self.input.tab_pressed(),
             f5: self.input.f5_pressed(),
             scroll_delta: self.input.consume_menu_scroll(),
-            up_held: self.input.key_pressed(KeyCode::ArrowUp),
-            space_held: self.input.key_pressed(KeyCode::Space),
+            dt,
+            credits_keys_down,
+            credits_keys_pressed,
         }
     }
 

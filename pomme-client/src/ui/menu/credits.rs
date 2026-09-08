@@ -21,6 +21,7 @@ const LINE_H: f32 = 12.0;
 const SCROLL_SPEED: f32 = 0.75;
 const SPEEDUP_FACTOR: f32 = 5.0;
 const SPEEDUP_FACTOR_FAST: f32 = 15.0;
+const CREDITS_KEY_CTRL: u8 = CREDITS_KEY_CTRL_L | CREDITS_KEY_CTRL_R;
 
 /// How far below the screen vanilla parks the logo, and the first line below
 /// that. The roll starts already scrolled past the first, since vanilla sizes
@@ -131,6 +132,24 @@ fn credits() -> &'static [Line] {
     )
 }
 
+/// `WinScreen` latches its key state from `keyPressed` / `keyReleased`, which
+/// OS key repeats also reach. So a key held from before the roll opened starts
+/// counting only once its repeat arrives, and any release clears it.
+fn latch_keys(state: &mut u8, down: u8, pressed: u8) -> u8 {
+    *state = (*state | pressed) & down;
+    *state
+}
+
+/// `WinScreen.calculateScrollSpeed`, without its direction term; the control
+/// keys count only while Space is down.
+fn scroll_speed(keys: u8) -> f32 {
+    if keys & CREDITS_KEY_SPACE == 0 {
+        return SCROLL_SPEED;
+    }
+    let modifiers = (keys & CREDITS_KEY_CTRL).count_ones() as f32;
+    SCROLL_SPEED * (SPEEDUP_FACTOR + modifiers * SPEEDUP_FACTOR_FAST)
+}
+
 impl MainMenu {
     /// Vanilla `CreditsAndAttributionScreen`: three 210-wide buttons spaced 8
     /// apart, under a title header, over a 200-wide Done footer.
@@ -194,20 +213,14 @@ impl MainMenu {
             }
         }
 
-        let done_w = 200.0 * gs;
-        if push_button_f(
+        if push_done_button(
             &mut elements,
             &mut ctx,
             &mut any_hovered,
-            input.cursor,
-            input.clicked,
-            cx - done_w / 2.0,
-            chrome.done_y,
-            done_w,
-            btn_h,
+            input,
+            &chrome,
+            cx,
             gs,
-            "Done",
-            true,
         ) {
             self.set_screen(Screen::Options);
         }
@@ -222,15 +235,17 @@ impl MainMenu {
         }
     }
 
+    /// The roll's only entry, so it can clear the key latch the way a fresh
+    /// `WinScreen` starts with nothing held.
     fn open_credits_roll(&mut self) {
         self.set_screen(Screen::CreditsRoll);
         self.credits_scroll = LOGO_LEAD_IN;
-        self.credits_last_frame = None;
+        self.credits_keys = 0;
     }
 
     /// Vanilla `WinScreen` with `poem = false`: the roll scrolls up from below
-    /// the screen, Up reverses it, Space and Shift speed it up, and it returns
-    /// to the credits page once the last line has passed.
+    /// the screen, Up reverses it, Space and Control speed it up, and it
+    /// returns to the credits page once the last line has passed.
     pub(super) fn build_credits_roll(
         &mut self,
         sw: f32,
@@ -247,23 +262,20 @@ impl MainMenu {
         let gs = crate::ui::hud::gui_scale(sw, sh, self.gui_scale_setting);
         let fs = common::FONT_SIZE * gs;
 
-        // `WinScreen.calculateScrollSpeed`, in ticks; vanilla advances by
-        // partial ticks per frame, so scale the frame delta by 20 tps.
-        let direction = if input.up_held { -1.0 } else { 1.0 };
-        let speed = if input.space_held {
-            let modifiers = if input.shift { 1.0 } else { 0.0 };
-            SCROLL_SPEED * (SPEEDUP_FACTOR + modifiers * SPEEDUP_FACTOR_FAST)
+        let keys = latch_keys(
+            &mut self.credits_keys,
+            input.credits_keys_down,
+            input.credits_keys_pressed,
+        );
+        let direction = if keys & CREDITS_KEY_UP != 0 {
+            -1.0
         } else {
-            SCROLL_SPEED
+            1.0
         };
-        let now = Instant::now();
-        let dt = self
-            .credits_last_frame
-            .map_or(0.0, |last| now.duration_since(last).as_secs_f32());
-        self.credits_last_frame = Some(now);
-        // Vanilla floors the rewind at 0, its own start; ours is the lead-in.
-        self.credits_scroll =
-            (self.credits_scroll + dt * 20.0 * speed * direction).max(LOGO_LEAD_IN);
+        // Vanilla advances by partial ticks, so scale the delta by 20 tps, and
+        // floors the rewind at its own start of 0; ours is the lead-in.
+        let step = input.dt * 20.0 * scroll_speed(keys) * direction;
+        self.credits_scroll = (self.credits_scroll + step).max(LOGO_LEAD_IN);
 
         let sh_units = sh / gs;
         let total_scroll_length = lines.len() as f32 * LINE_H;
@@ -384,5 +396,32 @@ mod tests {
             lines[1].text,
             format!("{NAME_PREFIX}{}", first_title.names[0])
         );
+    }
+
+    #[test]
+    fn held_key_counts_only_from_its_next_press() {
+        // Space activated the button on the previous screen, so the roll opens
+        // with it down but unpressed; only its repeat starts the speed-up.
+        let mut state = 0;
+        assert_eq!(latch_keys(&mut state, CREDITS_KEY_SPACE, 0), 0);
+        assert_eq!(
+            latch_keys(&mut state, CREDITS_KEY_SPACE, CREDITS_KEY_SPACE),
+            CREDITS_KEY_SPACE
+        );
+        assert_eq!(
+            latch_keys(&mut state, CREDITS_KEY_SPACE, 0),
+            CREDITS_KEY_SPACE
+        );
+        assert_eq!(latch_keys(&mut state, 0, 0), 0);
+    }
+
+    #[test]
+    fn scroll_speed_matches_calculate_scroll_speed() {
+        // `speedupModifiers` is only consulted while `speedupActive`.
+        assert_eq!(scroll_speed(0), 0.75);
+        assert_eq!(scroll_speed(CREDITS_KEY_UP | CREDITS_KEY_CTRL), 0.75);
+        assert_eq!(scroll_speed(CREDITS_KEY_SPACE), 3.75);
+        assert_eq!(scroll_speed(CREDITS_KEY_SPACE | CREDITS_KEY_CTRL_L), 15.0);
+        assert_eq!(scroll_speed(CREDITS_KEY_SPACE | CREDITS_KEY_CTRL), 26.25);
     }
 }

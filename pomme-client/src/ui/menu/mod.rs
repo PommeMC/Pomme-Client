@@ -265,13 +265,46 @@ pub struct MenuInput {
     pub tab: bool,
     pub f5: bool,
     pub scroll_delta: f32,
-    /// Up / Space held this frame, driving the credits roll's reverse and
-    /// speed-up (vanilla `WinScreen` tracks these as held keys, not presses).
-    pub up_held: bool,
-    pub space_held: bool,
+    /// Seconds since the last frame, clamped against stalls by the app loop.
+    /// Only the credits roll accumulates a delta; the other menu animations
+    /// time off an anchor `Instant`.
+    pub dt: f32,
+    /// `CREDITS_KEY_*` masks of the roll's keys. `pressed` carries OS key
+    /// repeats, as vanilla's `KeyboardHandler` routes those to `keyPressed`.
+    pub credits_keys_down: u8,
+    pub credits_keys_pressed: u8,
 }
 
+/// `WinScreen.direction`.
+pub const CREDITS_KEY_UP: u8 = 1 << 0;
+/// `WinScreen.speedupActive`.
+pub const CREDITS_KEY_SPACE: u8 = 1 << 1;
+/// `WinScreen.speedupModifiers` holds keys 341 / 345, the two Control keys,
+/// and counts them.
+pub const CREDITS_KEY_CTRL_L: u8 = 1 << 2;
+pub const CREDITS_KEY_CTRL_R: u8 = 1 << 3;
+
 impl MenuInput {
+    /// Neutral input: builds a screen for its visuals only, with no hover,
+    /// click or key state.
+    pub fn backdrop() -> Self {
+        Self {
+            cursor: (-1.0, -1.0),
+            clicked: false,
+            mouse_held: false,
+            events: Vec::new(),
+            shift: false,
+            enter: false,
+            escape: false,
+            tab: false,
+            f5: false,
+            scroll_delta: 0.0,
+            dt: 0.0,
+            credits_keys_down: 0,
+            credits_keys_pressed: 0,
+        }
+    }
+
     /// `InputWithModifiers.isSelection`: Enter / NumpadEnter (folded into
     /// `enter`) or Space with no modifiers activates the focused widget.
     pub fn activate(&self) -> bool {
@@ -429,10 +462,10 @@ pub struct MainMenu {
     last_click_time: Instant,
     /// Steady clock for label scroll animation.
     created: Instant,
-    /// Credits roll position, in unscaled GUI units, and the frame it last
-    /// advanced on.
+    /// Credits roll position in unscaled GUI units, and the `CREDITS_KEY_*`
+    /// mask latched from presses and releases the way `WinScreen` latches its.
     credits_scroll: f32,
-    credits_last_frame: Option<Instant>,
+    credits_keys: u8,
     last_click_index: Option<usize>,
     pub gui_scale_setting: u32,
     pub render_distance: u32,
@@ -548,7 +581,7 @@ impl MainMenu {
             last_click_time: Instant::now(),
             created: Instant::now(),
             credits_scroll: 0.0,
-            credits_last_frame: None,
+            credits_keys: 0,
             last_click_index: None,
             gui_scale_setting: settings.gui_scale,
             render_distance: settings.render_distance,

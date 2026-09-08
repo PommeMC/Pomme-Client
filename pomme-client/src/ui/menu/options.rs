@@ -1231,7 +1231,6 @@ impl MainMenu {
         }
 
         let gs = crate::ui::hud::gui_scale(sw, sh, self.gui_scale_setting);
-        let btn_h = common::BTN_H * gs;
         let cx = sw / 2.0;
 
         let mut elements = Vec::new();
@@ -1249,22 +1248,16 @@ impl MainMenu {
             centered: true,
         });
 
-        let done_w = 200.0 * gs;
         self.focus_advance(input);
         let mut ctx = self.make_focus_ctx(input);
-        if push_button_f(
+        if push_done_button(
             &mut elements,
             &mut ctx,
             &mut any_hovered,
-            input.cursor,
-            input.clicked,
-            cx - done_w / 2.0,
-            chrome.done_y,
-            done_w,
-            btn_h,
+            input,
+            &chrome,
+            cx,
             gs,
-            "Done",
-            true,
         ) {
             self.set_screen(back);
         }

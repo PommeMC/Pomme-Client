@@ -31,7 +31,7 @@ pub fn update_menu(
         }
     }
 
-    let menu_input = core.build_menu_input();
+    let menu_input = core.build_menu_input(dt);
 
     let result = core.menu.build(sw, sh, &menu_input, |t, s| {
         gfx.renderer.menu_text_width(t, s)

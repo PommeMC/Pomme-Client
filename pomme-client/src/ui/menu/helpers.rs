@@ -812,3 +812,30 @@ pub(super) fn push_screen_chrome(
         done_y: sh - footer_h + (footer_h - common::BTN_H * gs) / 2.0,
     }
 }
+
+/// The 200-wide Done button vanilla centres in a header/footer screen's footer.
+pub(super) fn push_done_button(
+    elements: &mut Vec<MenuElement>,
+    ctx: &mut FocusCtx,
+    any_hovered: &mut bool,
+    input: &MenuInput,
+    chrome: &ChromeLayout,
+    cx: f32,
+    gs: f32,
+) -> bool {
+    let w = 200.0 * gs;
+    push_button_f(
+        elements,
+        ctx,
+        any_hovered,
+        input.cursor,
+        input.clicked,
+        cx - w / 2.0,
+        chrome.done_y,
+        w,
+        common::BTN_H * gs,
+        gs,
+        "Done",
+        true,
+    )
+}
