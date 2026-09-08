@@ -154,9 +154,8 @@ impl ApplicationHandler for App {
                 mut pending_skin_uuid,
             } => {
                 let window_icon = {
-                    let png =
-                        include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/icon.png"));
-                    let img = image::load_from_memory(png).expect("failed to decode icon");
+                    let img = image::load_from_memory(crate::assets::POMME_ICON_PNG)
+                        .expect("failed to decode icon");
                     let rgba = img.to_rgba8();
                     let (w, h) = (rgba.width(), rgba.height());
                     winit::window::Icon::from_rgba(rgba.into_raw(), w, h).ok()

@@ -7,7 +7,7 @@ use pomme_gpu_allocator::vulkan::{Allocation, Allocator};
 use pyronyx::vk;
 
 use crate::assets::{AssetIndex, resolve_asset_path};
-use crate::renderer::{shader, util};
+use crate::renderer::{packing, shader, util};
 use crate::ui::font::GlyphMap;
 use crate::ui::text::TextSpan;
 
@@ -1952,6 +1952,7 @@ pub enum SpriteId {
     Incompatible,
     Unreachable,
     SteveHead,
+    PommeLogo,
     FriendsBackground,
     FriendsTab,
     FriendsTabDisabled,
@@ -2029,6 +2030,57 @@ struct SpriteAtlas {
 
 const INV_TEX_W: u32 = 176;
 const INV_TEX_H: u32 = 166;
+
+/// Gutter kept on all four sides of every sprite. Sprites are sampled with
+/// NEAREST, so a quad edge landing a hair outside its region reads the
+/// neighbour; a transparent moat makes that a no-op instead of a smear. Vanilla
+/// bakes the same symmetric one-texel pad at mip 0 (`Stitcher.registerSprite`).
+const SPRITE_PAD: u32 = 1;
+
+/// Vulkan's spec floor for `maxImageDimension2D`, so this is safe on every
+/// conformant device without querying it. The GUI sprites pack into a fraction
+/// of it, so the cap is never binding in practice.
+const MAX_SPRITE_ATLAS_SIZE: u32 = 4096;
+
+/// Downscales a straight-alpha sprite, filtering it premultiplied so the
+/// transparent border's black stays out of the edge texels' colour. The atlas
+/// stores straight alpha and the shader premultiplies at sample time, so a
+/// naive filter would darken every anti-aliased edge twice over.
+fn downscale_straight_alpha(src: &image::RgbaImage, size: u32) -> image::RgbaImage {
+    let mut premul = image::Rgba32FImage::new(src.width(), src.height());
+    for (dst, src) in premul.pixels_mut().zip(src.pixels()) {
+        let a = f32::from(src[3]) / 255.0;
+        *dst = image::Rgba([
+            f32::from(src[0]) / 255.0 * a,
+            f32::from(src[1]) / 255.0 * a,
+            f32::from(src[2]) / 255.0 * a,
+            a,
+        ]);
+    }
+
+    // Lanczos rings and the resize clamps each channel on its own, so colour
+    // can land above its own alpha; undo the premultiply against that clamp.
+    let scaled =
+        image::imageops::resize(&premul, size, size, image::imageops::FilterType::Lanczos3);
+    let mut out = image::RgbaImage::new(size, size);
+    for (dst, src) in out.pixels_mut().zip(scaled.pixels()) {
+        let a = src[3].clamp(0.0, 1.0);
+        let straight = |c: f32| {
+            if a == 0.0 {
+                0
+            } else {
+                ((c / a).clamp(0.0, 1.0) * 255.0).round() as u8
+            }
+        };
+        *dst = image::Rgba([
+            straight(src[0]),
+            straight(src[1]),
+            straight(src[2]),
+            (a * 255.0).round() as u8,
+        ]);
+    }
+    out
+}
 
 fn build_sprite_atlas(
     device: &vk::Device,
@@ -2424,12 +2476,12 @@ fn build_sprite_atlas(
         (
             SpriteId::SliderTrack,
             "minecraft/textures/gui/sprites/widget/slider.png",
-            3.0,
+            1.0,
         ),
         (
             SpriteId::SliderTrackHover,
             "minecraft/textures/gui/sprites/widget/slider_highlighted.png",
-            3.0,
+            1.0,
         ),
         (
             SpriteId::SliderHandle,
@@ -3021,53 +3073,77 @@ fn build_sprite_atlas(
         }
     }
 
-    let atlas_size = 1024u32;
-    let mut pixels = vec![0u8; (atlas_size * atlas_size * 4) as usize];
-    let mut regions = HashMap::new();
-    let mut cursor_x = 0u32;
-    let mut cursor_y = 0u32;
-    let mut row_height = 0u32;
-
-    for (id, data, w, h, border) in &images {
-        if cursor_x + w > atlas_size {
-            cursor_x = 0;
-            cursor_y += row_height;
-            row_height = 0;
+    // The credits roll draws the mark at 44 GUI units, so 44 * gui_scale px:
+    // 176 at 1080p, 264 at 1440p, 396 at 4K on the default auto scale. The
+    // atlas sampler is NEAREST, so 256 is the size that straddles that range
+    // with the least resampling either way.
+    const POMME_LOGO_SIZE: u32 = 256;
+    match image::load_from_memory(crate::assets::POMME_ICON_PNG) {
+        Ok(img) => {
+            images.push((
+                SpriteId::PommeLogo,
+                downscale_straight_alpha(&img.to_rgba8(), POMME_LOGO_SIZE).into_raw(),
+                POMME_LOGO_SIZE,
+                POMME_LOGO_SIZE,
+                0.0,
+            ));
         }
-        if cursor_y + h > atlas_size {
-            tracing::warn!("Sprite atlas overflow, skipping {:?}", id);
-            continue;
-        }
+        Err(e) => tracing::warn!("Failed to load pomme logo: {e}"),
+    }
 
-        blit_image(
-            &mut pixels,
-            atlas_size,
-            data,
-            *w,
-            cursor_x,
-            cursor_y,
-            *w,
-            *h,
+    let sizes: Vec<(u32, u32)> = images.iter().map(|sprite| (sprite.2, sprite.3)).collect();
+    let (atlas_size, placements, all_fit) =
+        packing::fit_atlas_size(&sizes, SPRITE_PAD, MAX_SPRITE_ATLAS_SIZE);
+
+    if !all_fit {
+        let dropped: Vec<SpriteId> = images
+            .iter()
+            .zip(&placements)
+            .filter(|(_, placement)| placement.is_none())
+            .map(|(sprite, _)| sprite.0)
+            .collect();
+        // Vanilla throws `StitcherException` here and turns it into a crash
+        // report. A dropped sprite renders as nothing at all, which is far
+        // harder to notice, so shout in release and hard-fail in dev.
+        tracing::error!(
+            "Sprite atlas overflowed the {MAX_SPRITE_ATLAS_SIZE}px cap; {} sprites will not \
+             render: {dropped:?}",
+            dropped.len()
         );
+        debug_assert!(all_fit, "sprite atlas dropped {dropped:?}");
+    }
 
-        let inv = 1.0 / atlas_size as f32;
+    let mut pixels = vec![0u8; atlas_size as usize * atlas_size as usize * 4];
+    let mut regions = HashMap::new();
+    let inv = 1.0 / atlas_size as f32;
+
+    for ((id, data, w, h, border), placement) in images.iter().zip(&placements) {
+        let Some((x, y)) = *placement else { continue };
+
+        blit_image(&mut pixels, atlas_size, data, *w, x, y, *w, *h);
+
         regions.insert(
             *id,
             SpriteRegion {
-                u0: cursor_x as f32 * inv,
-                v0: cursor_y as f32 * inv,
-                u1: (cursor_x + w) as f32 * inv,
-                v1: (cursor_y + h) as f32 * inv,
+                u0: x as f32 * inv,
+                v0: y as f32 * inv,
+                u1: (x + w) as f32 * inv,
+                v1: (y + h) as f32 * inv,
                 src_w: *w as f32,
                 src_h: *h as f32,
                 nine_slice_border: *border,
             },
         );
-
-        cursor_x += w;
-        row_height = row_height.max(*h);
     }
 
+    tracing::debug!(
+        "Sprite atlas: {atlas_size}x{atlas_size} for {} sprites",
+        regions.len()
+    );
+
+    // `upload_image` copies `atlas_size * atlas_size * 4` bytes regardless of
+    // the staging buffer's length, so `pixels` has to stay sized off the packed
+    // `atlas_size` above; feeding these a size of their own would read past it.
     let (image, view, allocation) =
         util::create_gpu_image(device, allocator, atlas_size, atlas_size, "sprite_atlas");
     let (staging_buffer, staging_allocation) =
@@ -3529,8 +3605,7 @@ fn push_nine_slice(
     let bu = (tex_border / region.src_w) * uv_w;
     let bv = (tex_border / region.src_h) * uv_h;
 
-    // Snap to integer pixels; fractional edges let NEAREST sampling bleed into
-    // the neighbouring atlas sprite (no gutter between sprites).
+    // Snap to integer pixels so NEAREST sampling stays inside the region.
     let x0 = x.round();
     let y0 = y.round();
     let x1 = (x + w).round();
@@ -3957,4 +4032,29 @@ fn create_pipeline(
     device.destroy_shader_module(frag_module, None);
 
     pipeline
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn downscale_keeps_colour_out_of_the_transparent_border() {
+        // Opaque white against the transparent black an anti-aliased sprite
+        // sits on; filtering straight alpha would leave the edge texels grey.
+        let mut src = image::RgbaImage::new(16, 16);
+        for (x, _, px) in src.enumerate_pixels_mut() {
+            *px = if x < 8 {
+                image::Rgba([255, 255, 255, 255])
+            } else {
+                image::Rgba([0, 0, 0, 0])
+            };
+        }
+
+        let out = downscale_straight_alpha(&src, 4);
+        assert!(out.pixels().any(|px| px[3] > 0 && px[3] < 255));
+        for px in out.pixels().filter(|px| px[3] > 0) {
+            assert_eq!([px[0], px[1], px[2]], [255, 255, 255], "alpha {}", px[3]);
+        }
+    }
 }

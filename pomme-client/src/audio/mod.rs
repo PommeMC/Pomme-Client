@@ -32,7 +32,7 @@ const SOUND_ATTENUATION_BLOCKS: f32 = 16.0;
 /// Sound categories, matching the protocol `SoundSource` order so a packet's
 /// source index maps straight onto a volume slot.
 #[derive(Clone, Copy)]
-enum SoundCategory {
+pub enum SoundCategory {
     Master = 0,
     Music = 1,
     Records = 2,
@@ -43,6 +43,9 @@ enum SoundCategory {
     Players = 7,
     Ambient = 8,
     Voice = 9,
+    /// Client-local: azalea's `SoundSource` stops at `Voice`, so no server
+    /// sound reaches this slot.
+    Ui = 10,
 }
 
 /// `SoundSource::BLOCKS` index, for emitting block sounds (e.g. mining)
@@ -57,7 +60,9 @@ pub const CATEGORY_PLAYERS: u8 = SoundCategory::Players as u8;
 pub const CATEGORY_AMBIENT: u8 = SoundCategory::Ambient as u8;
 
 impl SoundCategory {
-    fn from_index(index: u8) -> Self {
+    pub const COUNT: usize = Self::Ui as usize + 1;
+
+    pub fn from_index(index: u8) -> Self {
         match index {
             1 => Self::Music,
             2 => Self::Records,
@@ -68,6 +73,7 @@ impl SoundCategory {
             7 => Self::Players,
             8 => Self::Ambient,
             9 => Self::Voice,
+            10 => Self::Ui,
             _ => Self::Master,
         }
     }
@@ -133,7 +139,7 @@ pub struct AudioEngine {
     asset_index: Option<AssetIndex>,
     sounds: SoundsIndex,
     /// Per-category volumes (0.0..=1.0), indexed by `SoundCategory as usize`.
-    volumes: [f32; 10],
+    volumes: [f32; SoundCategory::COUNT],
     listener_left: [f32; 3],
     listener_right: [f32; 3],
     /// Mirrors the Show Subtitles option; while off, sounds are never
@@ -151,7 +157,11 @@ pub struct AudioEngine {
 }
 
 impl AudioEngine {
-    pub fn new(jar_assets_dir: &Path, asset_index: Option<AssetIndex>, volumes: [f32; 10]) -> Self {
+    pub fn new(
+        jar_assets_dir: &Path,
+        asset_index: Option<AssetIndex>,
+        volumes: [f32; SoundCategory::COUNT],
+    ) -> Self {
         let output = match DeviceSinkBuilder::open_default_sink() {
             Ok(mut sink) => {
                 // Only dropped at shutdown, so silence rodio's stderr drop warning.
@@ -198,7 +208,7 @@ impl AudioEngine {
     /// Sets all per-category volumes (0.0..=1.0), applied live to any playing
     /// menu track. No-op when the volumes are unchanged, so callers can invoke
     /// it every frame cheaply.
-    pub fn set_volumes(&mut self, volumes: [f32; 10]) {
+    pub fn set_volumes(&mut self, volumes: [f32; SoundCategory::COUNT]) {
         if volumes == self.volumes {
             return;
         }
@@ -234,18 +244,17 @@ impl AudioEngine {
         )
     }
 
-    /// Plays the vanilla button click: MASTER category at the fixed `forUI`
-    /// volume.
+    /// Plays the vanilla button click: UI category at the fixed `forUI` volume.
     pub fn play_ui_click(&self) {
         self.play_ui_sound(UI_CLICK_EVENT, UI_CLICK_VOLUME, 1.0);
     }
 
     /// Plays a non-positional UI sound event (vanilla
-    /// `SimpleSoundInstance.forUI`): MASTER category.
+    /// `SimpleSoundInstance.forUI`): UI category.
     pub fn play_ui_sound(&self, event: &str, volume: f32, pitch: f32) {
         if let Some((sink, entry_volume)) = self.make_sink(event) {
             sink.set_speed(pitch.max(0.01));
-            sink.set_volume(self.category_gain(SoundCategory::Master) * volume * entry_volume);
+            sink.set_volume(self.category_gain(SoundCategory::Ui) * volume * entry_volume);
             sink.detach();
         }
     }
@@ -452,5 +461,12 @@ mod tests {
         assert_eq!(linear_attenuation(8.0, d), 0.5);
         assert_eq!(linear_attenuation(16.0, d), 0.0);
         assert_eq!(linear_attenuation(24.0, d), 0.0);
+    }
+
+    /// Vanilla's `SoundSource` puts `UI("ui")` last, at 10.
+    #[test]
+    fn ui_matches_vanilla_sound_source_ordinal() {
+        assert_eq!(SoundCategory::Ui as usize, 10);
+        assert!(matches!(SoundCategory::from_index(10), SoundCategory::Ui));
     }
 }

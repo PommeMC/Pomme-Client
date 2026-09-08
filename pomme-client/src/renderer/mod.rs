@@ -3,6 +3,7 @@ pub mod camera;
 pub mod chunk;
 mod context;
 pub mod entity_model;
+pub(crate) mod packing;
 pub mod pipelines;
 mod screenshot;
 pub(crate) mod shader;
