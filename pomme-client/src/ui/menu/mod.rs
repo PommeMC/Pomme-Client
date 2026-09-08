@@ -1,3 +1,4 @@
+mod credits;
 mod friends_screen;
 mod helpers;
 mod main_screen;
@@ -267,9 +268,46 @@ pub struct MenuInput {
     pub tab: bool,
     pub f5: bool,
     pub scroll_delta: f32,
+    /// Seconds since the last frame, clamped against stalls by the app loop.
+    /// Only the credits roll accumulates a delta; the other menu animations
+    /// time off an anchor `Instant`.
+    pub dt: f32,
+    /// `CREDITS_KEY_*` masks of the roll's keys. `pressed` carries OS key
+    /// repeats, as vanilla's `KeyboardHandler` routes those to `keyPressed`.
+    pub credits_keys_down: u8,
+    pub credits_keys_pressed: u8,
 }
 
+/// `WinScreen.direction`.
+pub const CREDITS_KEY_UP: u8 = 1 << 0;
+/// `WinScreen.speedupActive`.
+pub const CREDITS_KEY_SPACE: u8 = 1 << 1;
+/// `WinScreen.speedupModifiers` holds keys 341 / 345, the two Control keys,
+/// and counts them.
+pub const CREDITS_KEY_CTRL_L: u8 = 1 << 2;
+pub const CREDITS_KEY_CTRL_R: u8 = 1 << 3;
+
 impl MenuInput {
+    /// Neutral input: builds a screen for its visuals only, with no hover,
+    /// click or key state.
+    pub fn backdrop() -> Self {
+        Self {
+            cursor: (-1.0, -1.0),
+            clicked: false,
+            mouse_held: false,
+            events: Vec::new(),
+            shift: false,
+            enter: false,
+            escape: false,
+            tab: false,
+            f5: false,
+            scroll_delta: 0.0,
+            dt: 0.0,
+            credits_keys_down: 0,
+            credits_keys_pressed: 0,
+        }
+    }
+
     /// `InputWithModifiers.isSelection`: Enter / NumpadEnter (folded into
     /// `enter`) or Space with no modifiers activates the focused widget.
     pub fn activate(&self) -> bool {
@@ -284,7 +322,8 @@ impl MenuInput {
     }
 }
 
-const HEADER_H: f32 = 33.0;
+/// Vanilla `HeaderAndFooterLayout.DEFAULT_HEADER_AND_FOOTER_HEIGHT`.
+const HEADER_FOOTER_H: f32 = 33.0;
 const ENTRY_H: f32 = 36.0;
 /// Inset (GUI units) keeping server-list entry content off the raw row edges.
 const SERVER_ENTRY_PAD: f32 = 2.0;
@@ -300,6 +339,8 @@ const COL_DIM: [f32; 4] = [0.55, 0.57, 0.69, 1.0];
 const COL_DARK_DIM: [f32; 4] = [0.4, 0.42, 0.52, 1.0];
 const COL_RED: [f32; 4] = [0.88, 0.25, 0.32, 1.0];
 const COL_SEP: [f32; 4] = [1.0, 1.0, 1.0, 0.07];
+/// Tint of the "Pomme" wordmark, on the title screen and in the credits roll.
+const COL_WORDMARK: [f32; 4] = [0.94, 0.96, 0.99, 0.95];
 
 const FIELD_BG: [f32; 4] = [0.06, 0.07, 0.14, 0.8];
 const FIELD_BORDER: [f32; 4] = [1.0, 1.0, 1.0, 0.08];
@@ -329,6 +370,7 @@ enum Screen {
     OptionsAccessibility,
     OptionsTelemetry,
     OptionsCredits,
+    CreditsRoll,
 }
 
 impl Screen {
@@ -349,6 +391,7 @@ impl Screen {
             Self::OptionsAccessibility => Self::OptionsAccessibility,
             Self::OptionsTelemetry => Self::OptionsTelemetry,
             Self::OptionsCredits => Self::OptionsCredits,
+            Self::CreditsRoll => Self::CreditsRoll,
             Self::ServerList => Self::ServerList,
             Self::DirectConnect => Self::DirectConnect,
             Self::AddServer => Self::AddServer,
@@ -422,6 +465,10 @@ pub struct MainMenu {
     last_click_time: Instant,
     /// Steady clock for label scroll animation.
     created: Instant,
+    /// Credits roll position in unscaled GUI units, and the `CREDITS_KEY_*`
+    /// mask latched from presses and releases the way `WinScreen` latches its.
+    credits_scroll: f32,
+    credits_keys: u8,
     last_click_index: Option<usize>,
     pub gui_scale_setting: u32,
     pub render_distance: u32,
@@ -536,6 +583,8 @@ impl MainMenu {
             focusable_count: 0,
             last_click_time: Instant::now(),
             created: Instant::now(),
+            credits_scroll: 0.0,
+            credits_keys: 0,
             last_click_index: None,
             gui_scale_setting: settings.gui_scale,
             render_distance: settings.render_distance,
@@ -721,6 +770,7 @@ impl MainMenu {
                 | Screen::OptionsAccessibility
                 | Screen::OptionsTelemetry
                 | Screen::OptionsCredits
+                | Screen::CreditsRoll
         )
     }
 
@@ -896,13 +946,10 @@ impl MainMenu {
                 "Telemetry Data",
                 Screen::Options,
             ),
-            Screen::OptionsCredits => self.build_options_stub(
-                screen_w,
-                screen_h,
-                input,
-                "Credits & Attribution",
-                Screen::Options,
-            ),
+            Screen::OptionsCredits => self.build_options_credits(screen_w, screen_h, input),
+            Screen::CreditsRoll => {
+                self.build_credits_roll(screen_w, screen_h, input, &text_width_fn)
+            }
         }
     }
 

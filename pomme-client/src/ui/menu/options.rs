@@ -666,30 +666,21 @@ impl MainMenu {
         let (content_top, content_bottom, done_y);
 
         if header_footer {
-            let header_h = 33.0 * gs;
-            let footer_h = 33.0 * gs;
+            let header_h = HEADER_FOOTER_H * gs;
+            let footer_h = HEADER_FOOTER_H * gs;
             let sep_h = 2.0 * gs;
             content_top = header_h + sep_h;
             content_bottom = sh - footer_h - sep_h;
             done_y = sh - footer_h + (footer_h - btn_h) / 2.0;
 
-            elements.push(MenuElement::TiledImage {
-                x: 0.0,
-                y: content_top,
-                w: sw,
-                h: content_bottom - content_top,
-                sprite: SpriteId::MenuBackground,
-                tile_size: 32.0 * gs,
-                tint: [0.25, 0.25, 0.25, 1.0],
-            });
-            elements.push(MenuElement::Rect {
-                x: 0.0,
-                y: content_top,
-                w: sw,
-                h: content_bottom - content_top,
-                corner_radius: 0.0,
-                color: [0.0, 0.0, 0.0, 0.3],
-            });
+            push_menu_backdrop(
+                &mut elements,
+                0.0,
+                content_top,
+                sw,
+                content_bottom - content_top,
+                gs,
+            );
 
             elements.push(MenuElement::Text {
                 x: cx,
@@ -1164,7 +1155,7 @@ impl MainMenu {
         header_y += field_h + pad;
 
         let content_top = header_y;
-        let footer_h = 33.0 * gs;
+        let footer_h = HEADER_FOOTER_H * gs;
         let content_bottom = sh - footer_h;
         let done_y = sh - footer_h + (footer_h - btn_h) / 2.0;
 
@@ -1385,89 +1376,33 @@ impl MainMenu {
         }
 
         let gs = crate::ui::hud::gui_scale(sw, sh, self.gui_scale_setting);
-        let fs = common::FONT_SIZE * gs;
-        let btn_h = common::BTN_H * gs;
         let cx = sw / 2.0;
-
-        let header_h = 33.0 * gs;
-        let footer_h = 33.0 * gs;
-        let sep_h = 2.0 * gs;
-        let content_top = header_h + sep_h;
-        let content_bottom = sh - footer_h - sep_h;
-        let done_y = sh - footer_h + (footer_h - btn_h) / 2.0;
 
         let mut elements = Vec::new();
         let mut any_hovered = false;
 
-        elements.push(MenuElement::TiledImage {
-            x: 0.0,
-            y: content_top,
-            w: sw,
-            h: content_bottom - content_top,
-            sprite: SpriteId::MenuBackground,
-            tile_size: 32.0 * gs,
-            tint: [0.25, 0.25, 0.25, 1.0],
-        });
-        elements.push(MenuElement::Rect {
-            x: 0.0,
-            y: content_top,
-            w: sw,
-            h: content_bottom - content_top,
-            corner_radius: 0.0,
-            color: [0.0, 0.0, 0.0, 0.3],
-        });
-
-        elements.push(MenuElement::Text {
-            x: cx,
-            y: (header_h - fs) / 2.0,
-            text: title.into(),
-            scale: fs,
-            color: WHITE,
-            centered: true,
-        });
-        elements.push(MenuElement::Image {
-            x: 0.0,
-            y: header_h,
-            w: sw,
-            h: sep_h,
-            sprite: SpriteId::HeaderSeparator,
-            tint: WHITE,
-        });
-        elements.push(MenuElement::Image {
-            x: 0.0,
-            y: content_bottom,
-            w: sw,
-            h: sep_h,
-            sprite: SpriteId::FooterSeparator,
-            tint: WHITE,
-        });
+        let chrome = push_screen_chrome(&mut elements, sw, sh, gs, title);
 
         let body_fs = 10.0 * gs;
         elements.push(MenuElement::Text {
             x: cx,
-            y: (content_top + content_bottom) / 2.0 - body_fs / 2.0,
+            y: (chrome.content_top + chrome.content_bottom) / 2.0 - body_fs / 2.0,
             text: "Coming soon".into(),
             scale: body_fs,
             color: COL_DIM,
             centered: true,
         });
 
-        let done_w = 200.0 * gs;
         self.focus_advance(input);
         let mut ctx = self.make_focus_ctx(input);
-        if push_button_f(
+        if push_done_button(
             &mut elements,
             &mut ctx,
             &mut any_hovered,
-            input.cursor,
-            input.clicked,
-            cx - done_w / 2.0,
-            done_y,
-            done_w,
-            btn_h,
+            input,
+            &chrome,
+            cx,
             gs,
-            "Done",
-            true,
         ) {
             self.set_screen(back);
         }

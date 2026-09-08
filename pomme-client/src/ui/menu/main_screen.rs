@@ -122,7 +122,7 @@ impl MainMenu {
             y: cy,
             text: "Pomme".into(),
             scale: title_size,
-            color: [0.94, 0.96, 0.99, 0.95],
+            color: COL_WORDMARK,
             centered: false,
         });
 
