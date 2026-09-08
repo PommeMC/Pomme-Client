@@ -134,6 +134,18 @@ fn packet_ids_match_azalea() {
         reset_times: true,
     });
     assert_eq!(clear.id(), table_id(Direction::Clientbound, "clear_titles"));
+
+    use azalea_protocol::packets::game::c_hurt_animation;
+
+    let hurt_animation =
+        ClientboundGamePacket::HurtAnimation(c_hurt_animation::ClientboundHurtAnimation {
+            id: MinecraftEntityId(0),
+            yaw: 90.0,
+        });
+    assert_eq!(
+        hurt_animation.id(),
+        table_id(Direction::Clientbound, "hurt_animation")
+    );
 }
 
 /// Round-trip through azalea's `LpVec3` decoder to cross-check the port.

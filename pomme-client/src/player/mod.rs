@@ -6,6 +6,7 @@ pub mod tab_list;
 use glam::{dvec2, dvec3};
 use inventory::Inventory;
 
+use crate::entity::HURT_DURATION;
 use crate::entity::components::{LookDirection, Position, Velocity};
 use crate::world::block::{FluidKind, fluid};
 
@@ -49,6 +50,9 @@ pub struct LocalPlayer {
     pub health: f32,
     pub absorption: f32,
     pub max_health: f32,
+    pub hurt_time: u8,
+    pub hurt_dir: f32,
+    flash_on_set_health: bool,
     pub food: u32,
     pub armor: u32,
     pub saturation: f32,
@@ -114,6 +118,9 @@ impl LocalPlayer {
             health: 20.0,
             absorption: 0.0,
             max_health: 20.0,
+            hurt_time: 0,
+            hurt_dir: 0.0,
+            flash_on_set_health: false,
             food: 20,
             armor: 0,
             saturation: 5.0,
@@ -155,6 +162,37 @@ impl LocalPlayer {
             experience_progress: 0.0,
             effects: crate::mob_effect::ActiveMobEffects::default(),
         }
+    }
+
+    pub fn apply_server_health(&mut self, health: f32) {
+        if self.flash_on_set_health && health < self.health {
+            self.mark_hurt();
+        }
+        self.health = health;
+        self.flash_on_set_health = true;
+    }
+
+    pub fn mark_hurt(&mut self) {
+        self.hurt_time = HURT_DURATION;
+    }
+
+    pub fn animate_hurt(&mut self, yaw: f32) {
+        self.mark_hurt();
+        self.hurt_dir = yaw;
+    }
+
+    pub fn tick_hurt(&mut self) {
+        if self.hurt_time > 0 {
+            self.hurt_time -= 1;
+        }
+    }
+
+    /// Login and respawn build a fresh vanilla `LocalPlayer`, so hurt state
+    /// does not survive a life.
+    pub fn reset_hurt_state(&mut self) {
+        self.hurt_time = 0;
+        self.hurt_dir = 0.0;
+        self.flash_on_set_health = false;
     }
 
     pub fn height(&self) -> f64 {
@@ -333,5 +371,90 @@ impl LocalPlayer {
     pub fn wake_up(&mut self) {
         self.sleeping_pos = None;
         self.sleep_counter = 100;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hurt_state_matches_vanilla_duration_direction_and_expiry() {
+        let mut player = LocalPlayer::new();
+
+        player.apply_server_health(16.0);
+        assert_eq!(
+            player.hurt_time, 0,
+            "first server health sync should not trigger hurt feedback"
+        );
+        player.apply_server_health(18.0);
+        assert_eq!(
+            player.hurt_time, 0,
+            "health increases should not trigger hurt feedback"
+        );
+        player.apply_server_health(17.0);
+        assert_eq!(
+            player.hurt_time, HURT_DURATION,
+            "later health decreases should trigger hurt feedback"
+        );
+        player.hurt_time = 0;
+
+        player.mark_hurt();
+        assert_eq!(
+            player.hurt_time, HURT_DURATION,
+            "damage should start the full hurt timer"
+        );
+        assert_eq!(
+            player.hurt_dir, 0.0,
+            "damage events alone must not invent a direction"
+        );
+
+        player.animate_hurt(-37.5);
+        assert_eq!(
+            player.hurt_time, HURT_DURATION,
+            "hurt animation should refresh the timer"
+        );
+        assert_eq!(
+            player.hurt_dir, -37.5,
+            "hurt animation yaw should be preserved exactly"
+        );
+
+        for remaining in (0..HURT_DURATION).rev() {
+            player.tick_hurt();
+            assert_eq!(
+                player.hurt_time, remaining,
+                "hurt timer should decrement once per client tick"
+            );
+        }
+        player.tick_hurt();
+        assert_eq!(player.hurt_time, 0, "expired hurt timer must not underflow");
+    }
+
+    #[test]
+    fn hurt_state_is_scoped_to_one_life() {
+        let mut player = LocalPlayer::new();
+        player.apply_server_health(20.0);
+        player.animate_hurt(-37.5);
+
+        player.reset_hurt_state();
+        assert_eq!(
+            player.hurt_time, 0,
+            "a new life should clear the hurt timer"
+        );
+        assert_eq!(
+            player.hurt_dir, 0.0,
+            "a new life should clear the hurt direction"
+        );
+
+        player.apply_server_health(6.0);
+        assert_eq!(
+            player.hurt_time, 0,
+            "the first health sync of a new life should not trigger hurt feedback"
+        );
+        player.apply_server_health(5.0);
+        assert_eq!(
+            player.hurt_time, HURT_DURATION,
+            "later decreases in the new life should trigger hurt feedback"
+        );
     }
 }
