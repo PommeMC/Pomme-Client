@@ -1348,13 +1348,21 @@ impl EntityStore {
             entity.tick_body_rotation();
             let dx = entity.position.x - entity.prev_position.x;
             let dz = entity.position.z - entity.prev_position.z;
-            update_walk_animation(
-                dx,
-                dz,
-                &mut entity.walk_anim_pos,
-                &mut entity.walk_anim_speed,
-                &mut entity.prev_walk_anim_speed,
-            );
+            if entity.health <= 0.0 {
+                stop_walk_animation(
+                    &mut entity.walk_anim_pos,
+                    &mut entity.walk_anim_speed,
+                    &mut entity.prev_walk_anim_speed,
+                );
+            } else {
+                update_walk_animation(
+                    dx,
+                    dz,
+                    &mut entity.walk_anim_pos,
+                    &mut entity.walk_anim_speed,
+                    &mut entity.prev_walk_anim_speed,
+                );
+            }
             if probes_water(&entity.entity_type) {
                 entity.is_in_water = entity.probe_water(chunks);
             }
@@ -1377,6 +1385,12 @@ impl EntityStore {
             entity.age_in_ticks = entity.age_in_ticks.wrapping_add(1);
         }
     }
+}
+
+pub fn stop_walk_animation(walk_pos: &mut f32, walk_speed: &mut f32, prev_walk_speed: &mut f32) {
+    *prev_walk_speed = 0.0;
+    *walk_speed = 0.0;
+    *walk_pos = 0.0;
 }
 
 pub fn update_walk_animation(
@@ -1474,6 +1488,22 @@ fn probes_water(kind: &EntityKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stop_walk_animation_matches_vanilla_state_reset() {
+        let mut position = 12.5;
+        let mut speed = 0.7;
+        let mut speed_old = 0.4;
+
+        stop_walk_animation(&mut position, &mut speed, &mut speed_old);
+
+        assert_eq!(
+            position, 0.0,
+            "vanilla stop() clears walk animation position"
+        );
+        assert_eq!(speed, 0.0, "vanilla stop() clears current walk speed");
+        assert_eq!(speed_old, 0.0, "vanilla stop() clears previous walk speed");
+    }
 
     #[test]
     fn death_clock_tracks_health_boundary_and_recovery() {

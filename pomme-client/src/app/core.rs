@@ -1639,6 +1639,11 @@ impl AppCore {
         game.player.snapshot_render_state();
         if game.dead {
             game.player.tick_death();
+            crate::entity::stop_walk_animation(
+                &mut game.player_walk_pos,
+                &mut game.player_walk_speed,
+                &mut game.player_prev_walk_speed,
+            );
             game.player.tick_bob(0.0, 0.0, true);
             // Q/F presses queued while dead must not fire on respawn.
             self.input.clear_click_counts();
