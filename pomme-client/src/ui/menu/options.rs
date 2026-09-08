@@ -464,8 +464,6 @@ impl MainMenu {
             ("UI:", self.ui_volume),
         ];
         let disabled = &[
-            // TODO: drop once `SoundCategory::Ui` exists.
-            "UI:",
             "Device:",
             "Directional Audio:",
             "Music Frequency:",
