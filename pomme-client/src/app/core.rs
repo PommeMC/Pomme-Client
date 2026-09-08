@@ -1628,6 +1628,7 @@ impl AppCore {
         renderer.set_base_fov(self.menu.fov as f32);
         let fov_effect_scale = self.menu.fov_effect();
         renderer.update_fov_mod(compute_fov_modifier(&game.player, fov_effect_scale));
+        // TODO: lava camera fluid (no eyes_in_lava).
         renderer.set_fluid_fov_factor(if game.player.eyes_in_water {
             1.0_f32.lerp(0.857_142_87, fov_effect_scale)
         } else {
