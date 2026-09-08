@@ -7,7 +7,7 @@ use pomme_gpu_allocator::vulkan::{Allocation, Allocator};
 use pyronyx::vk;
 
 use crate::assets::{AssetIndex, resolve_asset_path};
-use crate::renderer::{shader, util};
+use crate::renderer::{packing, shader, util};
 use crate::ui::font::GlyphMap;
 use crate::ui::text::TextSpan;
 
@@ -2030,6 +2030,17 @@ struct SpriteAtlas {
 const INV_TEX_W: u32 = 176;
 const INV_TEX_H: u32 = 166;
 
+/// Gutter kept on all four sides of every sprite. Sprites are sampled with
+/// NEAREST, so a quad edge landing a hair outside its region reads the
+/// neighbour; a transparent moat makes that a no-op instead of a smear. Vanilla
+/// bakes the same symmetric one-texel pad at mip 0 (`Stitcher.registerSprite`).
+const SPRITE_PAD: u32 = 1;
+
+/// Vulkan's spec floor for `maxImageDimension2D`, so this is safe on every
+/// conformant device without querying it. The GUI sprites pack into a fraction
+/// of it, so the cap is never binding in practice.
+const MAX_SPRITE_ATLAS_SIZE: u32 = 4096;
+
 fn build_sprite_atlas(
     device: &vk::Device,
     queue: vk::Queue,
@@ -3021,53 +3032,59 @@ fn build_sprite_atlas(
         }
     }
 
-    let atlas_size = 1024u32;
-    let mut pixels = vec![0u8; (atlas_size * atlas_size * 4) as usize];
-    let mut regions = HashMap::new();
-    let mut cursor_x = 0u32;
-    let mut cursor_y = 0u32;
-    let mut row_height = 0u32;
+    let sizes: Vec<(u32, u32)> = images.iter().map(|sprite| (sprite.2, sprite.3)).collect();
+    let (atlas_size, placements, all_fit) =
+        packing::fit_atlas_size(&sizes, SPRITE_PAD, MAX_SPRITE_ATLAS_SIZE);
 
-    for (id, data, w, h, border) in &images {
-        if cursor_x + w > atlas_size {
-            cursor_x = 0;
-            cursor_y += row_height;
-            row_height = 0;
-        }
-        if cursor_y + h > atlas_size {
-            tracing::warn!("Sprite atlas overflow, skipping {:?}", id);
-            continue;
-        }
-
-        blit_image(
-            &mut pixels,
-            atlas_size,
-            data,
-            *w,
-            cursor_x,
-            cursor_y,
-            *w,
-            *h,
+    if !all_fit {
+        let dropped: Vec<SpriteId> = images
+            .iter()
+            .zip(&placements)
+            .filter(|(_, placement)| placement.is_none())
+            .map(|(sprite, _)| sprite.0)
+            .collect();
+        // Vanilla throws `StitcherException` here and turns it into a crash
+        // report. A dropped sprite renders as nothing at all, which is far
+        // harder to notice, so shout in release and hard-fail in dev.
+        tracing::error!(
+            "Sprite atlas overflowed the {MAX_SPRITE_ATLAS_SIZE}px cap; {} sprites will not \
+             render: {dropped:?}",
+            dropped.len()
         );
+        debug_assert!(all_fit, "sprite atlas dropped {dropped:?}");
+    }
 
-        let inv = 1.0 / atlas_size as f32;
+    let mut pixels = vec![0u8; atlas_size as usize * atlas_size as usize * 4];
+    let mut regions = HashMap::new();
+    let inv = 1.0 / atlas_size as f32;
+
+    for ((id, data, w, h, border), placement) in images.iter().zip(&placements) {
+        let Some((x, y)) = *placement else { continue };
+
+        blit_image(&mut pixels, atlas_size, data, *w, x, y, *w, *h);
+
         regions.insert(
             *id,
             SpriteRegion {
-                u0: cursor_x as f32 * inv,
-                v0: cursor_y as f32 * inv,
-                u1: (cursor_x + w) as f32 * inv,
-                v1: (cursor_y + h) as f32 * inv,
+                u0: x as f32 * inv,
+                v0: y as f32 * inv,
+                u1: (x + w) as f32 * inv,
+                v1: (y + h) as f32 * inv,
                 src_w: *w as f32,
                 src_h: *h as f32,
                 nine_slice_border: *border,
             },
         );
-
-        cursor_x += w;
-        row_height = row_height.max(*h);
     }
 
+    tracing::debug!(
+        "Sprite atlas: {atlas_size}x{atlas_size} for {} sprites",
+        regions.len()
+    );
+
+    // `upload_image` copies `atlas_size * atlas_size * 4` bytes regardless of
+    // the staging buffer's length, so `pixels` has to stay sized off the packed
+    // `atlas_size` above; feeding these a size of their own would read past it.
     let (image, view, allocation) =
         util::create_gpu_image(device, allocator, atlas_size, atlas_size, "sprite_atlas");
     let (staging_buffer, staging_allocation) =
@@ -3529,8 +3546,7 @@ fn push_nine_slice(
     let bu = (tex_border / region.src_w) * uv_w;
     let bv = (tex_border / region.src_h) * uv_h;
 
-    // Snap to integer pixels; fractional edges let NEAREST sampling bleed into
-    // the neighbouring atlas sprite (no gutter between sprites).
+    // Snap to integer pixels so NEAREST sampling stays inside the region.
     let x0 = x.round();
     let y0 = y.round();
     let x1 = (x + w).round();
