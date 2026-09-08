@@ -270,6 +270,17 @@ impl Camera {
         (fov * self.fluid_fov_factor).to_radians()
     }
 
+    /// Vanilla `calculateHudFov`: the hand/item projection starts at 70° and
+    /// receives death/fluid FOV effects, but not the dynamic player FOV
+    /// modifier.
+    pub fn hud_fov_radians(&self) -> f32 {
+        let mut fov = DEFAULT_FOV_DEGREES;
+        if self.death_time > 0.0 {
+            fov /= death_fov_divisor(self.death_time);
+        }
+        (fov * self.fluid_fov_factor).to_radians()
+    }
+
     pub fn frustum_planes(&self) -> [[f32; 4]; 6] {
         Self::planes_from_view_projection(self.view_projection())
     }
@@ -379,7 +390,10 @@ impl Camera {
 
     pub fn sky_view_projection(&self) -> Mat4 {
         let (forward, up) = self.view_basis();
-        let view = view::look_to_mat4(Vec3::ZERO, forward, up);
+        // Vanilla renders the level/sky with bobHurt composed into the level
+        // projection. Death roll is part of bobHurt, so keep it on the sky even
+        // though the sky intentionally has no camera translation.
+        let view = self.death_matrix() * view::look_to_mat4(Vec3::ZERO, forward, up);
         let mut proj = proj::directx::perspective(
             self.fov_radians(self.render_partial_tick),
             self.aspect_ratio,
@@ -540,6 +554,44 @@ mod tests {
         assert!(
             (camera.fov_radians(0.0) - previous_tick_end).abs() < 1e-6,
             "advancing old_fov_modifier each tick must keep FOV continuous when partial_tick resets"
+        );
+    }
+
+    #[test]
+    fn hud_fov_uses_death_effect_without_dynamic_modifier() {
+        let mut camera = Camera::new(16.0 / 9.0);
+        camera.base_fov_degrees = 110.0;
+        camera.old_fov_modifier = 1.5;
+        camera.fov_modifier = 1.5;
+        camera.death_time = 20.0;
+        camera.fluid_fov_factor = 0.9;
+
+        let expected = (DEFAULT_FOV_DEGREES / death_fov_divisor(20.0) * 0.9).to_radians();
+        assert!(
+            (camera.hud_fov_radians() - expected).abs() < 1e-6,
+            "hand FOV must use vanilla's fixed 70-degree HUD base with death/fluid effects"
+        );
+    }
+
+    #[test]
+    fn sky_projection_includes_death_roll() {
+        let mut camera = Camera::new(16.0 / 9.0);
+        camera.death_time = 20.0;
+        let (forward, up) = camera.view_basis();
+        let view_without_roll = view::look_to_mat4(Vec3::ZERO, forward, up);
+        let mut projection = proj::directx::perspective(
+            camera.fov_radians(camera.render_partial_tick),
+            camera.aspect_ratio,
+            NEAR,
+            camera.depth_far,
+        );
+        projection.y_axis.y *= -1.0;
+        let without_roll = projection * view_without_roll;
+
+        assert_ne!(
+            camera.sky_view_projection(),
+            without_roll,
+            "sky must receive the death roll in addition to the already-applied death FOV"
         );
     }
 

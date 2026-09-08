@@ -1716,6 +1716,7 @@ impl Renderer {
                     && self.camera.top_down().is_none()
                 {
                     let aspect = sw / sh.max(1.0);
+                    let hud_fov = self.camera.hud_fov_radians();
                     // Same view-bob the world uses, so the arm/item bob in lockstep
                     // (vanilla applies bobView to the hand pose stack too).
                     let bob = self.camera.view_bob_matrix();
@@ -1726,6 +1727,7 @@ impl Renderer {
                             cmd,
                             frame,
                             aspect,
+                            hud_fov,
                             *swing_progress,
                             *use_anim,
                             item,
@@ -1736,6 +1738,7 @@ impl Renderer {
                             cmd,
                             frame,
                             aspect,
+                            hud_fov,
                             *swing_progress,
                             bob,
                         ),
