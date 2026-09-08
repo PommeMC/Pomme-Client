@@ -9,7 +9,9 @@ use crate::ui::text_edit::TextFieldRenderInfo;
 pub const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 pub const FONT_SIZE: f32 = 8.0;
 pub const BTN_H: f32 = 20.0;
-pub const COL_DISABLED: [f32; 4] = [0.35, 0.36, 0.45, 1.0];
+/// Vanilla's inactive-widget text colour, `0xA0A0A0`
+/// (`AbstractWidget.WithInactiveMessage.defaultInactiveMessage`).
+pub const COL_DISABLED: [f32; 4] = [0.627, 0.627, 0.627, 1.0];
 pub const SLOT_SIZE: f32 = 16.0;
 pub const SLOT_STRIDE: f32 = 18.0;
 pub const SLOT_LABEL_COLOR: [f32; 4] = [0.25, 0.25, 0.25, 1.0];
@@ -584,15 +586,16 @@ pub fn push_slider(
     fs: f32,
     label: &str,
     value: f32,
+    enabled: bool,
     dragging: bool,
     scroll: &LabelScroll<'_>,
 ) -> SliderResult {
-    let hovered = hit_test(cursor, [x, y, w, h]);
+    let hovered = enabled && hit_test(cursor, [x, y, w, h]);
     let handle_w = 8.0 * gs;
     let track_w = w - handle_w;
     let handle_x = x + value.clamp(0.0, 1.0) * track_w;
 
-    let actively_dragging = dragging && mouse_held;
+    let actively_dragging = enabled && dragging && mouse_held;
     let start_drag = hovered && mouse_held && !dragging;
 
     let new_value = if actively_dragging || start_drag {
@@ -602,14 +605,14 @@ pub fn push_slider(
         None
     };
 
-    let track_sprite = SpriteId::SliderTrack;
     elements.push(MenuElement::NineSlice {
         x,
         y,
         w,
         h,
-        sprite: track_sprite,
-        border: BTN_BORDER * gs,
+        sprite: SpriteId::SliderTrack,
+        // `widget/slider.png.mcmeta` declares a 1px border, not the button's 3.
+        border: 1.0 * gs,
         tint: WHITE,
     });
 
@@ -627,7 +630,8 @@ pub fn push_slider(
         tint: WHITE,
     });
 
-    push_widget_label(elements, x, y, w, h, gs, fs, label, WHITE, Some(scroll));
+    let text_col = if enabled { WHITE } else { COL_DISABLED };
+    push_widget_label(elements, x, y, w, h, gs, fs, label, text_col, Some(scroll));
 
     SliderResult {
         hovered,

@@ -10,6 +10,21 @@ pub(super) enum OptRow<'a> {
     PairLeft(&'a str),
 }
 
+fn option_enabled(label: &str, disabled: &[&str]) -> bool {
+    !disabled.iter().any(|prefix| label.starts_with(prefix))
+}
+
+/// Widget labels a row builds; `Header` rows are text, not widgets. Only the
+/// disable-list guard needs this, so it is debug-only.
+#[cfg(debug_assertions)]
+fn row_labels<'a>(row: &OptRow<'a>) -> Vec<&'a str> {
+    match row {
+        OptRow::Header(_) => Vec::new(),
+        OptRow::Big(a) | OptRow::PairLeft(a) => vec![*a],
+        OptRow::Pair(a, b) => vec![*a, *b],
+    }
+}
+
 fn compat_label(compat: PackCompat) -> (&'static str, [f32; 4]) {
     match compat {
         PackCompat::Compatible => ("Compatible", [0.33, 0.87, 0.33, 1.0]),
@@ -62,6 +77,9 @@ impl MainMenu {
 
         let fov_frac = (self.fov as f32 - 30.0) / 80.0;
         let sliders: &[(&str, f32)] = &[("FOV:", fov_frac)];
+        // Nav rows are disabled only where the target is a `build_options_stub`
+        // page; screens with real (if inert) controls stay reachable.
+        let disabled = &["Language...", "Telemetry Data..."];
         self.build_options_grid(
             sw,
             sh,
@@ -71,6 +89,7 @@ impl MainMenu {
             &rows,
             nav,
             sliders,
+            disabled,
             false,
             &[],
             text_width_fn,
@@ -183,6 +202,30 @@ impl MainMenu {
             ("Simulation Distance:", sd_frac),
             ("Max Framerate:", mf_frac),
         ];
+        let disabled = &[
+            "Fullscreen Resolution:",
+            "Inactivity FPS Limit:",
+            "Exclusive Fullscreen:",
+            "Brightness:",
+            "Graphics Backend:",
+            "Graphics:",
+            "Biome Blend:",
+            "Prioritize Chunk Updates:",
+            "Simulation Distance:",
+            "Smooth Lighting:",
+            "Particles:",
+            "Mipmap Levels:",
+            "Entity Shadows:",
+            "Entity Distance:",
+            "Menu Background Blur:",
+            "Cloud Range:",
+            "Cutout Leaves:",
+            "Improved Transparency:",
+            "Texture Filtering:",
+            "Max Anisotropy:",
+            "Weather Radius:",
+            "Chunk Fade-in:",
+        ];
         self.build_options_grid(
             sw,
             sh,
@@ -192,6 +235,7 @@ impl MainMenu {
             &rows,
             &[],
             sliders,
+            disabled,
             true,
             &[],
             text_width_fn,
@@ -220,6 +264,15 @@ impl MainMenu {
         ];
         let nav: &[(&str, Screen)] = &[("Key Binds...", Screen::OptionsKeybinds)];
         let sliders: &[(&str, f32)] = &[("Sensitivity:", self.sensitivity)];
+        let disabled = &[
+            "Invert Mouse:",
+            "Auto-Jump:",
+            "Operator Items Tab:",
+            "Key Binds...",
+            "Mouse Settings...",
+            "Sneak:",
+            "Sprint:",
+        ];
         self.build_options_grid(
             sw,
             sh,
@@ -229,6 +282,7 @@ impl MainMenu {
             &rows,
             nav,
             sliders,
+            disabled,
             true,
             &[],
             text_width_fn,
@@ -253,6 +307,26 @@ impl MainMenu {
             OptRow::Pair("Hide Matched Names: ON", "Reduced Debug Info: OFF"),
             OptRow::Pair("Only Show Secure Chat: OFF", "Save Chat Drafts: OFF"),
         ];
+        let disabled = &[
+            "Chat:",
+            "Chat Colors:",
+            "Web Links:",
+            "Prompt on Links:",
+            "Chat Text Opacity:",
+            "Text Background Opacity:",
+            "Chat Text Size:",
+            "Line Spacing:",
+            "Chat Delay:",
+            "Chat Width:",
+            "Focused Height:",
+            "Unfocused Height:",
+            "Narrator:",
+            "Command Suggestions:",
+            "Hide Matched Names:",
+            "Reduced Debug Info:",
+            "Only Show Secure Chat:",
+            "Save Chat Drafts:",
+        ];
         self.build_options_grid(
             sw,
             sh,
@@ -262,6 +336,7 @@ impl MainMenu {
             &rows,
             &[],
             &[],
+            disabled,
             true,
             &[],
             text_width_fn,
@@ -299,6 +374,29 @@ impl MainMenu {
         ];
         let back = self.settings_back.clone_screen();
         let sliders: &[(&str, f32)] = &[("FOV Effects:", self.fov_effect_scale)];
+        let disabled = &[
+            "Narrator:",
+            "High Contrast:",
+            "Menu Background Blur:",
+            "Text Background Opacity:",
+            "Background for Chat Only:",
+            "Chat Text Opacity:",
+            "Line Spacing:",
+            "Chat Delay:",
+            "Notification Time:",
+            "Distortion Effects:",
+            "Darkness Pulsing:",
+            "Damage Tilt:",
+            "Glint Speed:",
+            "Glint Strength:",
+            "Hide Lightning Flashes:",
+            "Dark Loading Screen:",
+            "Panorama Scroll Speed:",
+            "Hide Splash Texts:",
+            "Narrator Hotkey:",
+            "Rotate with Minecart:",
+            "High Contrast Outlines:",
+        ];
         self.build_options_grid(
             sw,
             sh,
@@ -308,6 +406,7 @@ impl MainMenu {
             &rows,
             &[],
             sliders,
+            disabled,
             true,
             &[],
             text_width_fn,
@@ -364,6 +463,12 @@ impl MainMenu {
             ("Voice/Speech:", self.voice_volume),
             ("UI:", self.ui_volume),
         ];
+        let disabled = &[
+            "Device:",
+            "Directional Audio:",
+            "Music Frequency:",
+            "Music Toast:",
+        ];
         self.build_options_grid(
             sw,
             sh,
@@ -373,6 +478,7 @@ impl MainMenu {
             &rows,
             &[],
             sliders,
+            disabled,
             true,
             &[],
             text_width_fn,
@@ -428,6 +534,17 @@ impl MainMenu {
             OptRow::Pair(left_pants, right_pants),
             OptRow::Pair(hat, main_hand),
         ];
+        // "Main Hand:" stays enabled: it moves the attack indicator client-side.
+        // The model toggles do nothing; `client_information` hardcodes them.
+        let disabled = &[
+            "Cape:",
+            "Jacket:",
+            "Left Sleeve:",
+            "Right Sleeve:",
+            "Left Pants Leg:",
+            "Right Pants Leg:",
+            "Hat:",
+        ];
         self.build_options_grid(
             sw,
             sh,
@@ -437,6 +554,7 @@ impl MainMenu {
             &rows,
             &[],
             &[],
+            disabled,
             true,
             &[],
             text_width_fn,
@@ -482,6 +600,12 @@ impl MainMenu {
                 "Allow friends to see which server you're on",
             ),
         ];
+        let disabled = &[
+            "Realms Notifications:",
+            "Allow Server Listings:",
+            "Show Online Status:",
+            "Show Current Server:",
+        ];
         self.build_options_grid(
             sw,
             sh,
@@ -491,6 +615,7 @@ impl MainMenu {
             &rows,
             &[],
             &[],
+            disabled,
             true,
             tooltips,
             text_width_fn,
@@ -508,6 +633,7 @@ impl MainMenu {
         rows: &[OptRow],
         nav: &[(&str, Screen)],
         sliders: &[(&'static str, f32)],
+        disabled: &[&str],
         header_footer: bool,
         tooltips: &[(&str, &str)],
         text_width_fn: common::TextWidthFn,
@@ -644,6 +770,18 @@ impl MainMenu {
             });
         }
 
+        // Rewording a label would silently re-enable its control, so catch a
+        // prefix that no longer matches anything.
+        #[cfg(debug_assertions)]
+        {
+            for p in disabled {
+                debug_assert!(
+                    rows.iter().flat_map(row_labels).any(|l| l.starts_with(p)),
+                    "{title}: disabled prefix {p:?} matches no row",
+                );
+            }
+        }
+
         self.focus_advance(input);
         let mut ctx = self.make_focus_ctx(input);
 
@@ -671,6 +809,7 @@ impl MainMenu {
                 OptRow::PairLeft(a) => widgets.push((*a, left_x, small_w)),
             }
             for (label, bx, bw) in widgets {
+                let enabled = option_enabled(label, disabled);
                 if let Some((prefix, value)) = sliders.iter().find(|(p, _)| label.starts_with(p)) {
                     let is_active = self.active_slider == Some(*prefix);
                     let result = common::push_slider(
@@ -685,6 +824,7 @@ impl MainMenu {
                         fs,
                         label,
                         *value,
+                        enabled,
                         is_active,
                         &label_scroll,
                     );
@@ -701,8 +841,9 @@ impl MainMenu {
                     continue;
                 }
 
-                let focused = ctx.focused(true);
-                let h = common::hit_test(cursor, [bx, by, bw, btn_h]);
+                let focused = ctx.focused(enabled);
+                let hit = common::hit_test(cursor, [bx, by, bw, btn_h]);
+                let h = enabled && hit;
                 let draw_cursor = helpers::focus_cursor(focused, h, bx, by, bw, btn_h, cursor);
                 common::push_button_scrolling(
                     &mut elements,
@@ -714,11 +855,13 @@ impl MainMenu {
                     gs,
                     fs,
                     label,
-                    true,
+                    enabled,
                     &label_scroll,
                 );
                 any_hovered |= h;
-                if h && let Some((_, tip)) = tooltips.iter().find(|(p, _)| label.starts_with(p)) {
+                // Vanilla keys tooltips off `isHovered`, which ignores `active`
+                // (`AbstractWidget.extractTooltipForNextRenderPass`).
+                if hit && let Some((_, tip)) = tooltips.iter().find(|(p, _)| label.starts_with(p)) {
                     common::push_tooltip(&mut elements, cursor, sw, sh, gs, tip);
                 }
                 if (clicked && h) || (focused && ctx.activate) {
@@ -1270,5 +1413,84 @@ impl MainMenu {
             blur: 2.0,
             clicked_button: ctx.fired,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disabled_prefixes_match_dynamic_option_labels() {
+        let disabled = &["Simulation Distance:", "Graphics:"];
+
+        assert!(!option_enabled("Simulation Distance: 12 chunks", disabled));
+        assert!(!option_enabled("Graphics: Fancy", disabled));
+        assert!(option_enabled("Render Distance: 12 chunks", disabled));
+        assert!(option_enabled("Graphics Backend: Default", disabled));
+    }
+
+    #[test]
+    fn disabled_slider_cannot_hover_or_drag() {
+        let mut elements = Vec::new();
+        let text_width = |_: &str, _: f32| 0.0;
+        let scroll = common::LabelScroll {
+            text_width_fn: &text_width,
+            time_secs: 0.0,
+        };
+
+        let result = common::push_slider(
+            &mut elements,
+            (50.0, 10.0),
+            true,
+            0.0,
+            0.0,
+            100.0,
+            20.0,
+            1.0,
+            common::FONT_SIZE,
+            "Simulation Distance: 12 chunks",
+            0.5,
+            false,
+            true,
+            &scroll,
+        );
+
+        assert!(!result.hovered);
+        assert!(!result.dragging);
+        assert_eq!(result.new_value, None);
+    }
+
+    /// Drives every options screen so `build_options_grid`'s debug assertion
+    /// checks each screen's rows against its disabled list.
+    #[test]
+    fn disabled_prefixes_cover_every_options_screen() {
+        let rt = std::sync::Arc::new(
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("current-thread runtime"),
+        );
+        // Nonexistent dir: settings and the server list fall back to defaults,
+        // and nothing writes without a click.
+        let mut menu = MainMenu::new(
+            std::path::Path::new("pomme-options-coverage-test"),
+            rt,
+            "tester".into(),
+            "26.2".into(),
+            None,
+        );
+        let input = MenuInput::default();
+        let text_width = |_: &str, _: f32| 0.0;
+        let tw: common::TextWidthFn = &text_width;
+        let (sw, sh) = (1920.0, 1080.0);
+
+        menu.build_options(sw, sh, &input, tw);
+        menu.build_options_video(sw, sh, &input, tw);
+        menu.build_options_controls(sw, sh, &input, tw);
+        menu.build_options_chat(sw, sh, &input, tw);
+        menu.build_options_accessibility(sw, sh, &input, tw);
+        menu.build_options_music(sw, sh, &input, tw);
+        menu.build_options_skin(sw, sh, &input, tw);
+        menu.build_options_online(sw, sh, &input, tw);
     }
 }

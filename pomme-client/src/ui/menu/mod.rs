@@ -245,11 +245,14 @@ pub enum MenuAction {
 pub struct MainMenuResult {
     pub elements: Vec<MenuElement>,
     pub action: MenuAction,
+    // TODO: vanilla `AbstractWidget.handleCursor` wants NOT_ALLOWED over a
+    // hovered inactive widget; one bool only says pointer or arrow.
     pub cursor_pointer: bool,
     pub blur: f32,
     pub clicked_button: bool,
 }
 
+#[derive(Default)]
 pub struct MenuInput {
     pub cursor: (f32, f32),
     pub clicked: bool,
