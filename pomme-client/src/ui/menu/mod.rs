@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use winit::keyboard::KeyCode;
 
 use crate::app::core::DisplayMode;
+use crate::audio::SoundCategory;
 use crate::renderer::CloudMode;
 use crate::renderer::pipelines::menu_overlay::{
     ICON_CHECK, ICON_CODE, ICON_COMMENT, ICON_GEAR, ICON_GLOBE, ICON_LANGUAGE, ICON_LINK,
@@ -662,22 +663,23 @@ impl MainMenu {
         self.fov_effect_scale * self.fov_effect_scale
     }
 
-    /// Per-category volumes in `SoundCategory` order
-    /// (master, music, records, weather, blocks, hostile, neutral, players,
-    /// ambient, voice) for the audio engine.
-    pub fn category_volumes(&self) -> [f32; 10] {
-        [
-            self.master_volume,
-            self.music_volume,
-            self.jukebox_volume,
-            self.weather_volume,
-            self.blocks_volume,
-            self.hostile_volume,
-            self.friendly_volume,
-            self.players_volume,
-            self.ambient_volume,
-            self.voice_volume,
-        ]
+    /// Per-category volumes for the audio engine, indexed by `SoundCategory`;
+    /// the exhaustive match keeps a new category from compiling without a
+    /// slider.
+    pub fn category_volumes(&self) -> [f32; SoundCategory::COUNT] {
+        std::array::from_fn(|index| match SoundCategory::from_index(index as u8) {
+            SoundCategory::Master => self.master_volume,
+            SoundCategory::Music => self.music_volume,
+            SoundCategory::Records => self.jukebox_volume,
+            SoundCategory::Weather => self.weather_volume,
+            SoundCategory::Blocks => self.blocks_volume,
+            SoundCategory::Hostile => self.hostile_volume,
+            SoundCategory::Neutral => self.friendly_volume,
+            SoundCategory::Players => self.players_volume,
+            SoundCategory::Ambient => self.ambient_volume,
+            SoundCategory::Voice => self.voice_volume,
+            SoundCategory::Ui => self.ui_volume,
+        })
     }
 
     fn save_settings(&self) {
