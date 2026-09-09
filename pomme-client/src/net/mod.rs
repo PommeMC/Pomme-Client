@@ -442,6 +442,9 @@ pub enum NetworkEvent {
     EntityDamaged {
         id: i32,
     },
+    EntityDied {
+        id: i32,
+    },
     HurtAnimation {
         id: i32,
         yaw: f32,
@@ -453,6 +456,8 @@ pub enum NetworkEvent {
     },
     PlayerLogin {
         entity_id: i32,
+        hardcore: bool,
+        show_death_screen: bool,
     },
     PlayerScore {
         entity_id: i32,
@@ -469,6 +474,7 @@ pub enum NetworkEvent {
         keep_attribute_modifiers: bool,
     },
     PlayerDied {
+        player_id: i32,
         message: String,
     },
     ResourcePackPush {
