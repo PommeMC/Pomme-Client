@@ -34,8 +34,6 @@ const WATER_GRAVITY: f64 = 0.02;
 const STEP_HEIGHT: f64 = 0.6;
 pub const PLAYER_HALF_WIDTH: f64 = 0.3;
 pub const PLAYER_HEIGHT: f64 = 1.8;
-const DYING_HALF_WIDTH: f64 = 0.1;
-const DYING_HEIGHT: f64 = 0.2;
 const SPRINT_JUMP_BOOST: f64 = 0.2;
 const FLYING_VERTICAL_FRICTION: f64 = 0.6;
 // Vanilla Player.getFlyingSpeed: sprinting while airborne (not flying).
@@ -157,22 +155,6 @@ pub fn tick(
     player.was_jump_pressed = jump_held;
 }
 
-fn dead_tick_dimensions(player: &LocalPlayer) -> (f64, f64, f64) {
-    if player.death_time == 1 {
-        (
-            DYING_HALF_WIDTH,
-            DYING_HEIGHT,
-            crate::player::STANDING_EYE_HEIGHT,
-        )
-    } else {
-        (
-            PLAYER_HALF_WIDTH,
-            player.height(),
-            player.target_eye_height(),
-        )
-    }
-}
-
 /// Vanilla dead-player `LivingEntity.aiStep`: input is immobile, but travel
 /// still applies existing velocity, gravity, collision, and drag until tick-20
 /// removal.
@@ -180,22 +162,16 @@ pub fn tick_dead(player: &mut LocalPlayer, chunk_store: &ChunkStore) {
     player.no_jump_delay = 0;
     player.sprinting = false;
 
-    // `die()` sets Pose.DYING immediately. Player.updatePlayerPose runs only at
-    // the end of that first dead tick, so only that travel step uses 0.2 x 0.2.
-    let first_dead_tick = player.death_time == 1;
-    let (half_width, height, eye_height) = dead_tick_dimensions(player);
+    // Local players enter death through SetHealth; entity event 3 intentionally
+    // skips LivingEntity.die for players, so the current ordinary player pose
+    // remains authoritative until Player.updatePlayerPose runs at tick end.
+    let half_width = PLAYER_HALF_WIDTH;
+    let height = player.height();
+    let eye_height = player.target_eye_height();
 
     let neutral = InputState::released();
     player.update_water_state_for_dimensions(chunk_store, half_width, height, eye_height);
-
-    // Camera.tick runs before entity ticks in vanilla, so it observes the pose
-    // from the previous tick. DYING and standing both target a 1.62 eye height.
-    if first_dead_tick {
-        player.prev_eye_height = player.eye_height;
-        player.eye_height += (crate::player::STANDING_EYE_HEIGHT - player.eye_height) * 0.5;
-    } else {
-        player.tick_eye_height();
-    }
+    player.tick_eye_height();
 
     if player.in_water {
         tick_water(player, &neutral, chunk_store, 0.0, 0.0, half_width, height);
@@ -665,35 +641,27 @@ mod tests {
         let chunks = ChunkStore::new(2);
 
         player.death_time = 1;
-        assert_eq!(
-            dead_tick_dimensions(&player),
-            (
-                DYING_HALF_WIDTH,
-                DYING_HEIGHT,
-                crate::player::STANDING_EYE_HEIGHT
-            ),
-            "the first dead tick must use Vanilla's immediate DYING dimensions"
-        );
-        player.death_time = 2;
-        assert_eq!(
-            dead_tick_dimensions(&player),
-            (
-                PLAYER_HALF_WIDTH,
-                player.height(),
-                player.target_eye_height()
-            ),
-            "after Player.updatePlayerPose, dead travel must use the current ordinary pose"
-        );
-        player.death_time = 1;
+        let starting_height = player.height();
         tick_dead(&mut player, &chunks);
+
+        assert_eq!(
+            starting_height, CROUCH_HEIGHT,
+            "death must begin from the player's existing ordinary pose"
+        );
 
         assert!(
             !player.crouching,
             "the first dead tick must end by selecting the neutral-input pose"
         );
+        assert_eq!(
+            player.eye_height, 1.27,
+            "the first dead tick must still use the pre-tick crouching eye height"
+        );
+        player.death_time = 2;
+        tick_dead(&mut player, &chunks);
         assert!(
             player.eye_height > 1.27,
-            "dead-player camera eye height must keep smoothing toward the current pose"
+            "the next dead tick must smooth toward the neutral standing pose"
         );
         assert!(
             player.position.x > 0.0,

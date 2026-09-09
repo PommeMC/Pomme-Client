@@ -61,6 +61,8 @@ pub fn handle_game_packet(
             });
             let _ = event_tx.try_send(NetworkEvent::PlayerLogin {
                 entity_id: p.player_id.0,
+                hardcore: p.hardcore,
+                show_death_screen: p.show_death_screen,
             });
         }
         ClientboundGamePacket::LevelChunkWithLight(p) => {
@@ -938,6 +940,7 @@ pub fn handle_game_packet(
         ClientboundGamePacket::PlayerCombatKill(p) => {
             tracing::info!("Player died: {}", p.message);
             let _ = event_tx.try_send(NetworkEvent::PlayerDied {
+                player_id: p.player_id.0,
                 message: p.message.to_string(),
             });
         }

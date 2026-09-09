@@ -170,6 +170,83 @@ impl LocalPlayer {
         self.death_time = 0;
     }
 
+    /// ClientboundRespawn always constructs a fresh LocalPlayer. Keep bit 2
+    /// then restores only synced entity data plus velocity/rotation; ordinary
+    /// player state such as inventory, food and XP comes from fresh defaults
+    /// until the server synchronizes it again.
+    pub fn reset_for_respawn(&mut self, keep_entity_data: bool) {
+        let kept_health = self.health;
+        let kept_absorption = self.absorption;
+        let kept_score = self.score;
+        let kept_velocity = self.velocity;
+        let kept_look = self.look_dir;
+        let kept_sprinting = self.sprinting;
+        let kept_crouching = self.crouching;
+        let kept_air_supply = self.air_supply;
+        let kept_sleeping_pos = self.sleeping_pos;
+
+        self.death_time = 0;
+        self.reset_hurt_state();
+        self.effects = crate::mob_effect::ActiveMobEffects::default();
+        self.inventory = Inventory::new();
+        self.food = 20;
+        self.armor = 0;
+        self.saturation = 5.0;
+        self.experience_level = 0;
+        self.experience_progress = 0.0;
+        self.flying = false;
+        self.may_fly = false;
+        self.fly_speed = 0.05;
+        self.walk_speed = 0.1;
+        self.jump_trigger_time = 0;
+        self.no_jump_delay = 0;
+        self.was_jump_pressed = false;
+        self.jump_riding_ticks = 0;
+        self.jump_riding_scale = 0.0;
+        self.abilities_dirty = false;
+        self.eye_height = STANDING_EYE_HEIGHT;
+        self.prev_eye_height = STANDING_EYE_HEIGHT;
+        self.walk_dist = 0.0;
+        self.prev_walk_dist = 0.0;
+        self.bob = 0.0;
+        self.prev_bob = 0.0;
+        self.horizontal_collision = false;
+        self.sprint_toggle_timer = 0;
+        self.was_forward_pressed = false;
+        self.in_water = false;
+        self.fluid_height = 0.0;
+        self.eyes_in_water = false;
+        self.swimming = false;
+        self.sleep_counter = 0;
+        self.on_ground = false;
+
+        if keep_entity_data {
+            // SynchedEntityData copied by vanilla includes these Pomme-modeled
+            // values; movement and rotation are copied explicitly as well.
+            self.health = kept_health;
+            self.absorption = kept_absorption;
+            self.score = kept_score;
+            self.velocity = kept_velocity;
+            self.look_dir = kept_look;
+            self.prev_look_dir = kept_look;
+            self.sprinting = kept_sprinting;
+            self.crouching = kept_crouching;
+            self.air_supply = kept_air_supply;
+            self.sleeping_pos = kept_sleeping_pos;
+        } else {
+            self.health = 20.0;
+            self.absorption = 0.0;
+            self.score = 0;
+            self.velocity = Velocity::default();
+            self.look_dir = LookDirection::new(-180.0, 0.0);
+            self.prev_look_dir = self.look_dir;
+            self.sprinting = false;
+            self.crouching = false;
+            self.air_supply = MAX_AIR_SUPPLY;
+            self.sleeping_pos = None;
+        }
+    }
+
     pub fn snapshot_render_state(&mut self) {
         self.prev_position = self.position;
         self.prev_look_dir = self.look_dir;
@@ -432,6 +509,131 @@ mod tests {
             player.death_time, 20,
             "removed local players no longer advance their death clock"
         );
+    }
+
+    #[test]
+    fn death_respawn_resets_local_corpse_state() {
+        let mut player = LocalPlayer::new();
+        player.death_time = 20;
+        player.max_health = 40.0;
+        player.health = 0.0;
+        player.score = 42;
+        player.experience_level = 17;
+        player.experience_progress = 0.75;
+        player.inventory.set_slot(
+            crate::player::inventory::HOTBAR_START,
+            azalea_inventory::ItemStack::Present(azalea_inventory::ItemStackData::new(
+                azalea_registry::builtin::ItemKind::Stone,
+                4,
+            )),
+        );
+        player.food = 3;
+        player.saturation = 0.0;
+        player.velocity = Velocity::new(0.3, -0.4, 0.2);
+        player.sprinting = true;
+        player.crouching = true;
+        player.flying = true;
+        player.eye_height = CROUCH_EYE_HEIGHT;
+        player.prev_eye_height = CROUCH_EYE_HEIGHT;
+        player.walk_dist = 5.0;
+        player.prev_walk_dist = 4.5;
+        player.bob = 0.08;
+        player.prev_bob = 0.04;
+        player.in_water = true;
+        player.fluid_height = 0.8;
+        player.eyes_in_water = true;
+        player.swimming = true;
+        player.air_supply = 12;
+        player.sleeping_pos = Some(azalea_core::position::BlockPos::new(1, 64, 1));
+        player.sleep_counter = 100;
+
+        player.reset_for_respawn(false);
+
+        assert_eq!(player.death_time, 0);
+        assert_eq!(
+            player.health, 20.0,
+            "fresh LocalPlayer health is initialized before kept attributes are copied"
+        );
+        assert_eq!(player.score, 0);
+        assert_eq!(player.experience_level, 0);
+        assert_eq!(player.experience_progress, 0.0);
+        assert!(matches!(
+            player
+                .inventory
+                .slot(crate::player::inventory::HOTBAR_START),
+            azalea_inventory::ItemStack::Empty
+        ));
+        assert_eq!(player.food, 20);
+        assert_eq!(player.saturation, 5.0);
+        assert_eq!(player.velocity, Velocity::default());
+        assert!(!player.sprinting);
+        assert!(!player.crouching);
+        assert!(!player.flying);
+        assert_eq!(player.eye_height, STANDING_EYE_HEIGHT);
+        assert_eq!(player.prev_eye_height, STANDING_EYE_HEIGHT);
+        assert_eq!(player.walk_dist, 0.0);
+        assert_eq!(player.prev_walk_dist, 0.0);
+        assert_eq!(player.bob, 0.0);
+        assert_eq!(player.prev_bob, 0.0);
+        assert!(!player.in_water);
+        assert_eq!(player.fluid_height, 0.0);
+        assert!(!player.eyes_in_water);
+        assert!(!player.swimming);
+        assert_eq!(player.air_supply, MAX_AIR_SUPPLY);
+        assert!(player.sleeping_pos.is_none());
+        assert_eq!(player.sleep_counter, 0);
+    }
+
+    #[test]
+    fn keep_entity_data_respawn_preserves_only_synced_player_state() {
+        let mut player = LocalPlayer::new();
+        player.health = 7.0;
+        player.absorption = 3.0;
+        player.score = 42;
+        player.velocity = Velocity::new(0.3, -0.4, 0.2);
+        player.look_dir = LookDirection::new(35.0, -12.0);
+        player.sprinting = true;
+        player.crouching = true;
+        player.air_supply = 87;
+        player.sleeping_pos = Some(azalea_core::position::BlockPos::new(1, 64, 1));
+        player.food = 4;
+        player.experience_level = 17;
+        player.experience_progress = 0.75;
+        player.inventory.set_slot(
+            crate::player::inventory::HOTBAR_START,
+            azalea_inventory::ItemStack::Present(azalea_inventory::ItemStackData::new(
+                azalea_registry::builtin::ItemKind::Stone,
+                4,
+            )),
+        );
+        player.flying = true;
+        player.in_water = true;
+
+        player.reset_for_respawn(true);
+
+        assert_eq!(player.health, 7.0);
+        assert_eq!(player.absorption, 3.0);
+        assert_eq!(player.score, 42);
+        assert_eq!(player.velocity, Velocity::new(0.3, -0.4, 0.2));
+        assert_eq!(player.look_dir, LookDirection::new(35.0, -12.0));
+        assert!(player.sprinting);
+        assert!(player.crouching);
+        assert_eq!(player.air_supply, 87);
+        assert_eq!(
+            player.sleeping_pos,
+            Some(azalea_core::position::BlockPos::new(1, 64, 1))
+        );
+        assert_eq!(player.food, 20);
+        assert_eq!(player.experience_level, 0);
+        assert_eq!(player.experience_progress, 0.0);
+        assert!(matches!(
+            player
+                .inventory
+                .slot(crate::player::inventory::HOTBAR_START),
+            azalea_inventory::ItemStack::Empty
+        ));
+        assert!(!player.flying);
+        assert!(!player.in_water);
     }
 
     #[test]

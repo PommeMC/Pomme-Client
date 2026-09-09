@@ -430,10 +430,10 @@ impl Camera {
 
     pub fn sky_view_projection(&self) -> Mat4 {
         let (forward, up) = self.view_basis();
-        // Vanilla renders the level/sky with bobHurt composed into the level
-        // projection. Death roll is part of bobHurt, so keep it on the sky even
-        // though the sky intentionally has no camera translation.
-        let view = self.death_matrix() * view::look_to_mat4(Vec3::ZERO, forward, up);
+        // Vanilla renders the sky under the same level projection that already
+        // contains bobHurt (death roll + hurt tilt) followed by bobView. Keep
+        // the full view effect while omitting only camera translation.
+        let view = self.view_effect_matrix() * view::look_to_mat4(Vec3::ZERO, forward, up);
         let mut proj = proj::directx::perspective(
             self.fov_radians(self.render_partial_tick),
             self.aspect_ratio,
@@ -675,11 +675,15 @@ mod tests {
     }
 
     #[test]
-    fn sky_projection_includes_death_roll() {
+    fn sky_projection_uses_full_level_view_effect_without_translation() {
         let mut camera = Camera::new(16.0 / 9.0);
         camera.death_time = 20.0;
+        camera.set_render_partial_tick(0.5);
+        camera.set_hurt(6, 35.0, 0.75);
+        camera.set_view_bob(1.25, 0.08, true);
+
         let (forward, up) = camera.view_basis();
-        let view_without_roll = view::look_to_mat4(Vec3::ZERO, forward, up);
+        let view = camera.view_effect_matrix() * view::look_to_mat4(Vec3::ZERO, forward, up);
         let mut projection = proj::directx::perspective(
             camera.fov_radians(camera.render_partial_tick),
             camera.aspect_ratio,
@@ -687,12 +691,11 @@ mod tests {
             camera.depth_far,
         );
         projection.y_axis.y *= -1.0;
-        let without_roll = projection * view_without_roll;
 
-        assert_ne!(
+        assert_mat4_close(
             camera.sky_view_projection(),
-            without_roll,
-            "sky must receive the death roll in addition to the already-applied death FOV"
+            projection * view,
+            "sky must share death, hurt, and view-bob effects with the level projection",
         );
     }
 
