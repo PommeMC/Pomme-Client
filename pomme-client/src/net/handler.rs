@@ -107,6 +107,9 @@ pub fn handle_game_packet(
         }
         ClientboundGamePacket::Sound(p) => {
             // Coordinates are fixed-point: block position times 8.
+            // TODO: azalea's `SoundSource` stops at `Voice = 9` and `AzBuf`
+            // decodes an unknown discriminant as the first variant, so
+            // `UI = 10` plays under `Master`. Only a plugin server sends it.
             let _ = event_tx.try_send(NetworkEvent::PlaySound {
                 sound: crate::audio::SoundRef::resolve(&p.sound),
                 category: p.source as u8,
@@ -595,6 +598,12 @@ pub fn handle_game_packet(
         }
         ClientboundGamePacket::DamageEvent(p) => {
             let _ = event_tx.try_send(NetworkEvent::EntityDamaged { id: p.entity_id.0 });
+        }
+        ClientboundGamePacket::HurtAnimation(p) => {
+            let _ = event_tx.try_send(NetworkEvent::HurtAnimation {
+                id: p.id.0,
+                yaw: p.yaw,
+            });
         }
         ClientboundGamePacket::RotateHead(p) => {
             let head_y_rot_deg = (p.y_head_rot as f32) * 360.0 / 256.0;

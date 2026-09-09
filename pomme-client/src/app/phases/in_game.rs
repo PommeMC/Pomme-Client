@@ -1461,6 +1461,7 @@ pub fn update_game(
     while core.tick_accumulator >= TICK_RATE {
         game.tick_count = game.tick_count.wrapping_add(1);
         core.tick_physics(&mut gfx.renderer, connection, game);
+        game.player.tick_hurt();
         game.player.effects.tick();
         game.item_entity_store.tick(&game.chunk_store);
         game.particle_store.tick(&game.chunk_store);
@@ -1639,6 +1640,11 @@ pub fn update_game(
     } else {
         0.0
     });
+    gfx.renderer.set_hurt(
+        game.player.hurt_time,
+        game.player.hurt_dir,
+        core.menu.damage_tilt_strength,
+    );
     // Plain lerp (vanilla getInterpolatedWalkDistance); the forward-extrapolating
     // camera variant judders across tick boundaries when per-tick speed varies.
     let bob_walk = game

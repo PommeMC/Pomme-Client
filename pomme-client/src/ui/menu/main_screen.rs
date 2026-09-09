@@ -31,24 +31,29 @@ impl MainMenu {
         let text_col: [f32; 4] = [0.89, 0.90, 0.96, 0.85];
         let text_bright: [f32; 4] = [0.94, 0.95, 0.98, 1.0];
         let text_dim: [f32; 4] = [0.53, 0.56, 0.69, 0.6];
+        let text_disabled: [f32; 4] = [0.45, 0.47, 0.58, 0.35];
         let border: [f32; 4] = [1.0, 1.0, 1.0, 0.05];
 
         struct BtnDef {
             label: &'static str,
             id: u8,
+            enabled: bool,
         }
         let buttons = [
             BtnDef {
                 label: "Singleplayer",
                 id: 0,
+                enabled: false,
             },
             BtnDef {
                 label: "Multiplayer",
                 id: 1,
+                enabled: true,
             },
             BtnDef {
                 label: "Quit Game",
                 id: 2,
+                enabled: true,
             },
         ];
 
@@ -198,8 +203,8 @@ impl MainMenu {
         for (i, def) in buttons.iter().enumerate() {
             let by = cy + i as f32 * (btn_h + btn_gap);
             let rect = [btn_x, by, content_w, btn_h];
-            let focused = ctx.focused(true);
-            let hovered = common::hit_test(cursor, rect);
+            let focused = ctx.focused(def.enabled);
+            let hovered = def.enabled && common::hit_test(cursor, rect);
             any_hovered |= hovered;
             // Keyboard focus shows the same highlight as hover (vanilla).
             let active = hovered || focused;
@@ -224,7 +229,13 @@ impl MainMenu {
                     accent[0],
                     accent[1],
                     accent[2],
-                    if active { 0.9 } else { 0.12 },
+                    if !def.enabled {
+                        0.04
+                    } else if active {
+                        0.9
+                    } else {
+                        0.12
+                    },
                 ],
             });
 
@@ -233,7 +244,13 @@ impl MainMenu {
                 y: rect[1] + (rect[3] - font_size) / 2.0,
                 text: def.label.into(),
                 scale: font_size,
-                color: if active { text_bright } else { text_col },
+                color: if !def.enabled {
+                    text_disabled
+                } else if active {
+                    text_bright
+                } else {
+                    text_col
+                },
                 centered: false,
             });
 
@@ -280,7 +297,7 @@ impl MainMenu {
                     icon,
                     scale: icon_scale,
                     color: if !enabled {
-                        [0.45, 0.47, 0.58, 0.35]
+                        text_disabled
                     } else if hovered {
                         text_bright
                     } else {
@@ -290,21 +307,22 @@ impl MainMenu {
                 hovered
             };
 
-        let bottom_icons: [(f32, char); 4] = [
-            (btn_x, ICON_USER),
-            (btn_x + icon_size + icon_gap, ICON_LINK),
-            (btn_x + content_w - icon_size, ICON_GEAR),
+        let bottom_icons: [(f32, char, bool); 4] = [
+            (btn_x, ICON_USER, false),
+            (btn_x + icon_size + icon_gap, ICON_LINK, true),
+            (btn_x + content_w - icon_size, ICON_GEAR, true),
             (
                 btn_x + content_w - icon_size * 2.0 - icon_gap,
                 ICON_PAINTBRUSH,
+                true,
             ),
         ];
 
-        for &(bx, icon) in &bottom_icons {
-            let hovered = icon_btn(&mut elements, bx, icon_area_y, icon, true);
-            any_hovered |= hovered;
+        for &(bx, icon, enabled) in &bottom_icons {
+            let hovered = icon_btn(&mut elements, bx, icon_area_y, icon, enabled);
+            any_hovered |= enabled && hovered;
 
-            if clicked && hovered {
+            if enabled && clicked && hovered {
                 any_clicked = true;
                 match icon {
                     ICON_LINK => {
@@ -342,7 +360,7 @@ impl MainMenu {
             (
                 new_x0 + icon_size + icon_gap,
                 ICON_LANGUAGE,
-                true,
+                false,
                 "Language",
             ),
             (

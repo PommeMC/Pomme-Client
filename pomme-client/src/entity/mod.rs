@@ -94,7 +94,8 @@ fn normalize_player_index_at(kind: EntityKind, index: u8, protocol: i32) -> u8 {
 }
 
 const INTERPOLATION_STEPS: i32 = 3;
-const HURT_DURATION: u8 = 10;
+/// Vanilla `LivingEntity.hurtDuration`, never assigned anything but 10.
+pub const HURT_DURATION: u8 = 10;
 /// Vanilla default arm-swing duration in ticks
 /// (`LivingEntity.getCurrentSwingDuration`).
 const SWING_DURATION: u8 = 6;

@@ -79,6 +79,18 @@ fn apply_server_block(
     );
 }
 
+/// Starts an entity's hurt animation, with a direction for the packets that
+/// carry one. The local player lives outside the entity store.
+fn hurt_entity(game: &mut GameState, id: i32, dir: Option<f32>) {
+    if id != game.player.entity_id {
+        game.entity_store.mark_hurt(id);
+    } else if let Some(yaw) = dir {
+        game.player.animate_hurt(yaw);
+    } else {
+        game.player.mark_hurt();
+    }
+}
+
 /// Queues a column's packet light for the per-tick apply. Chunk loads enable
 /// the column, standalone light updates are corrections.
 fn queue_light_apply(
@@ -532,6 +544,7 @@ impl AppCore {
                     game.riding_vehicle_id = None;
                     game.player.jump_riding_ticks = 0;
                     game.player.jump_riding_scale = 0.0;
+                    game.player.reset_hurt_state();
 
                     renderer.clear_chunk_meshes();
                     game.mesh_dispatcher =
@@ -667,7 +680,7 @@ impl AppCore {
                     food,
                     saturation,
                 } => {
-                    game.player.health = health;
+                    game.player.apply_server_health(health);
                     game.player.food = food;
                     game.player.saturation = saturation;
                     if health > 0.0 && game.dead {
@@ -1420,9 +1433,8 @@ impl AppCore {
                 NetworkEvent::EntitySwing { id } => {
                     game.entity_store.start_swing(id);
                 }
-                NetworkEvent::EntityDamaged { id } => {
-                    game.entity_store.mark_hurt(id);
-                }
+                NetworkEvent::EntityDamaged { id } => hurt_entity(game, id, None),
+                NetworkEvent::HurtAnimation { id, yaw } => hurt_entity(game, id, Some(yaw)),
                 NetworkEvent::EntityDied { id } => {
                     game.entity_store.mark_dead(id);
                 }

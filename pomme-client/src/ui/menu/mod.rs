@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use winit::keyboard::KeyCode;
 
 use crate::app::core::DisplayMode;
+use crate::audio::SoundCategory;
 use crate::renderer::CloudMode;
 use crate::renderer::pipelines::menu_overlay::{
     ICON_CHECK, ICON_CODE, ICON_COMMENT, ICON_GEAR, ICON_GLOBE, ICON_LANGUAGE, ICON_LINK,
@@ -32,6 +33,8 @@ struct Settings {
     fov: u32,
     #[serde(default = "default_fov_effect_scale")]
     fov_effect_scale: f32,
+    #[serde(default = "default_damage_tilt_strength")]
+    damage_tilt_strength: f32,
     #[serde(default = "default_sensitivity")]
     sensitivity: f32,
     #[serde(default = "default_true")]
@@ -112,6 +115,16 @@ fn default_fov_effect_scale() -> f32 {
     1.0
 }
 
+fn default_damage_tilt_strength() -> f32 {
+    1.0
+}
+
+/// Vanilla's `OptionInstance.UnitDouble` range, for sliders an out-of-range
+/// options.json would otherwise feed straight into a render or input curve.
+fn unit_range(value: f32) -> f32 {
+    value.clamp(0.0, 1.0)
+}
+
 fn default_sensitivity() -> f32 {
     0.5
 }
@@ -145,6 +158,7 @@ impl Default for Settings {
             simulation_distance: 12,
             fov: 70,
             fov_effect_scale: 1.0,
+            damage_tilt_strength: 1.0,
             sensitivity: 0.5,
             view_bobbing: true,
             show_subtitles: false,
@@ -244,11 +258,14 @@ pub enum MenuAction {
 pub struct MainMenuResult {
     pub elements: Vec<MenuElement>,
     pub action: MenuAction,
+    // TODO: vanilla `AbstractWidget.handleCursor` wants NOT_ALLOWED over a
+    // hovered inactive widget; one bool only says pointer or arrow.
     pub cursor_pointer: bool,
     pub blur: f32,
     pub clicked_button: bool,
 }
 
+#[derive(Default)]
 pub struct MenuInput {
     pub cursor: (f32, f32),
     pub clicked: bool,
@@ -479,6 +496,7 @@ pub struct MainMenu {
     pub fov: u32,
     /// FOV Effects slider fraction (0..1); squared by `fov_effect()`.
     pub fov_effect_scale: f32,
+    pub damage_tilt_strength: f32,
     pub sensitivity: f32,
     pub view_bobbing: bool,
     pub show_subtitles: bool,
@@ -590,9 +608,10 @@ impl MainMenu {
             server_render_distance: 0,
             fov: settings.fov,
             fov_effect_scale: settings.fov_effect_scale,
-            // Cubed by the look curve, so an out-of-range options.json value
-            // reaches infinity and leaves the look direction NaN for good.
-            sensitivity: settings.sensitivity.clamp(0.0, 1.0),
+            damage_tilt_strength: unit_range(settings.damage_tilt_strength),
+            // Cubed by the look curve, so an out-of-range value reaches
+            // infinity and leaves the look direction NaN for good.
+            sensitivity: unit_range(settings.sensitivity),
             view_bobbing: settings.view_bobbing,
             show_subtitles: settings.show_subtitles,
             show_autosave_indicator: settings.show_autosave_indicator,
@@ -662,22 +681,23 @@ impl MainMenu {
         self.fov_effect_scale * self.fov_effect_scale
     }
 
-    /// Per-category volumes in `SoundCategory` order
-    /// (master, music, records, weather, blocks, hostile, neutral, players,
-    /// ambient, voice) for the audio engine.
-    pub fn category_volumes(&self) -> [f32; 10] {
-        [
-            self.master_volume,
-            self.music_volume,
-            self.jukebox_volume,
-            self.weather_volume,
-            self.blocks_volume,
-            self.hostile_volume,
-            self.friendly_volume,
-            self.players_volume,
-            self.ambient_volume,
-            self.voice_volume,
-        ]
+    /// Per-category volumes for the audio engine, indexed by `SoundCategory`;
+    /// the exhaustive match keeps a new category from compiling without a
+    /// slider.
+    pub fn category_volumes(&self) -> [f32; SoundCategory::COUNT] {
+        std::array::from_fn(|index| match SoundCategory::from_index(index as u8) {
+            SoundCategory::Master => self.master_volume,
+            SoundCategory::Music => self.music_volume,
+            SoundCategory::Records => self.jukebox_volume,
+            SoundCategory::Weather => self.weather_volume,
+            SoundCategory::Blocks => self.blocks_volume,
+            SoundCategory::Hostile => self.hostile_volume,
+            SoundCategory::Neutral => self.friendly_volume,
+            SoundCategory::Players => self.players_volume,
+            SoundCategory::Ambient => self.ambient_volume,
+            SoundCategory::Voice => self.voice_volume,
+            SoundCategory::Ui => self.ui_volume,
+        })
     }
 
     fn save_settings(&self) {
@@ -690,6 +710,7 @@ impl MainMenu {
                 simulation_distance: self.simulation_distance,
                 fov: self.fov,
                 fov_effect_scale: self.fov_effect_scale,
+                damage_tilt_strength: self.damage_tilt_strength,
                 sensitivity: self.sensitivity,
                 view_bobbing: self.view_bobbing,
                 show_subtitles: self.show_subtitles,
@@ -962,6 +983,28 @@ impl MainMenu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn damage_tilt_defaults_to_full_strength_and_clamps_to_unit_range() {
+        let mut legacy = serde_json::to_value(Settings::default()).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("damage_tilt_strength");
+        let legacy: Settings = serde_json::from_value(legacy).unwrap();
+        assert_eq!(
+            legacy.damage_tilt_strength, 1.0,
+            "legacy settings should default Damage Tilt to vanilla's 100%"
+        );
+
+        for (stored, expected) in [(-0.25, 0.0), (0.35, 0.35), (1.25, 1.0)] {
+            assert_eq!(
+                unit_range(stored),
+                expected,
+                "stored slider value {stored} should clamp to {expected}"
+            );
+        }
+    }
 
     #[test]
     fn display_mode_settings_are_backward_compatible_and_round_trip() {
